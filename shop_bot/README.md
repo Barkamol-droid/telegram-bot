@@ -16,6 +16,8 @@ aksiyalar (masalan 11.11), uzuk o'lchamini tanlash, savat, buyurtma berish va ad
   otkritka yozuvi), tasdiqlash
 - 💎 Biz haqimizda, 📢 Kanalimiz, ☎️ Aloqa
 - 💳 To'lov: Click, Payme (Telegram ichida, kartadan) yoki naqd — qabul qilganda
+- 💎 Brilliantlar (bonus): har 100 000 so'm xarid uchun 1 💎 (buyurtma yetkazilgach), 1 💎 = 1 000 so'm
+  chegirma; keyingi xaridda ishlatish yoki do'stga (kontaktlardan tanlab) sovg'a qilish mumkin
 - 📦 Buyurtmalarim — oxirgi buyurtmalar va ularning holati
 - 🔔 Buyurtma holati o'zgarganda xabarnoma
 
@@ -23,6 +25,8 @@ aksiyalar (masalan 11.11), uzuk o'lchamini tanlash, savat, buyurtma berish va ad
 - 🔥 Aksiya: foiz (1–90%), barcha mahsulotlar yoki bitta kategoriya, muddat («Faqat 11.11 kuni»,
   «Hozirdan 11.11 oxirigacha» yoki istalgan sana). Aksiya o'zi boshlanadi va o'zi tugaydi.
   «📢 Mijozlarga e'lon qilish» — har bir mijozga o'z tilida xabar; «👁 Mijozlar qanday ko'radi» — 4 tilda ko'rish
+- 💎 Brilliantlar: buyurtma «🚚 Yetkazildi» qilinganda mijozga avtomatik beriladi; bekor qilinsa,
+  ishlatilganlari qaytariladi. `/bonus ID SON` — mijozga brilliant sovg'a qilish. Statistikada jami brilliantlar
 - 👥 Adminlar: bosh admin yangi adminni telefon kontaktlaridan tanlab (yoki ID orqali) qo'shadi va o'chiradi.
   Qo'shilgan adminlar buyurtmalarni oladi, mahsulot va aksiyalarni boshqaradi
 - Mahsulot/kategoriya nomini 4 tilda kiritish: `O'zbekcha | Русский | Тоҷикӣ | Қазақша`
@@ -59,6 +63,8 @@ python main.py
 | `SHOP_PHONE`   | «☎️ Aloqa» da ko'rsatiladigan telefon (standart: `+998900441678`) |
 | `CLICK_TOKEN`  | Click provider token (BotFather → Payments). Bo'lmasa, Click tugmasi chiqmaydi |
 | `PAYME_TOKEN`  | Payme provider token (BotFather → Payments). Bo'lmasa, Payme tugmasi chiqmaydi |
+| `BONUS_STEP`   | Necha so'm xarid uchun 1 💎 (standart: `100000`) |
+| `BONUS_VALUE`  | 1 💎 qiymati, so'mda (standart: `1000`) |
 | `TIMEZONE`     | Vaqt mintaqasi (standart: `Asia/Tashkent`) — aksiya vaqti shu bo'yicha |
 | `CONTACT_TEXT` | «☎️ Aloqa» tugmasi matni (`\n` — yangi qator). Tilga xos: `CONTACT_TEXT_RU`, `_TG`, `_KK` |
 
@@ -92,6 +98,7 @@ shop_bot/
     ├── common.py    # /start, bekor qilish
     ├── user.py      # katalog, savat, buyurtma
     ├── payment.py   # Click, Payme, naqd to'lov
+    ├── bonus.py     # 💎 brilliantlar: balans, tarix, sovg'a qilish
     └── admin.py     # admin panel
 ```
 

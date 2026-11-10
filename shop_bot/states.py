@@ -6,6 +6,7 @@ class OrderForm(StatesGroup):
     phone = State()
     address = State()
     comment = State()
+    bonus = State()
     confirm = State()
 
 
@@ -32,3 +33,8 @@ class AdminForm(StatesGroup):
 class PromoForm(StatesGroup):
     percent = State()
     custom_period = State()
+
+
+class BonusSend(StatesGroup):
+    recipient = State()
+    amount = State()

@@ -37,7 +37,8 @@ async def notify_admins(bot: Bot, text: str):
 
 async def offer_payment(message: Message, order_id: int, lang: str):
     """Buyurtmadan keyin to'lov usullarini taklif qiladi (onlayn to'lov sozlangan bo'lsa)."""
-    if payment_providers():
+    order = await db.get_order(order_id)
+    if payment_providers() and order and order.get("payment_status") != "paid":
         await message.answer(t("choose_payment", lang), reply_markup=kb.payment_kb(order_id, lang))
 
 

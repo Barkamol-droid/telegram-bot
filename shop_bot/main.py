@@ -11,7 +11,7 @@ from aiogram.types import BotCommand
 
 import db
 from config import ADMIN_IDS, BOT_TOKEN, payment_providers
-from handlers import admin, common, payment, user
+from handlers import admin, bonus, common, payment, user
 from i18n import LangMiddleware
 
 
@@ -38,7 +38,7 @@ async def main():
     dp.callback_query.middleware(LangMiddleware())
     dp.pre_checkout_query.middleware(LangMiddleware())
     # Tartib muhim: payment — user dan oldin (user oxirida hamma xabarni ushlovchi handler bor)
-    dp.include_routers(common.router, admin.router, payment.router, user.router)
+    dp.include_routers(common.router, admin.router, payment.router, bonus.router, user.router)
 
     await bot.set_my_commands([BotCommand(command="start", description="Botni ishga tushirish")])
     for code, description in {"ru": "Запустить бота", "kk": "Ботты іске қосу"}.items():

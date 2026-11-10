@@ -37,6 +37,15 @@ CREATE TABLE IF NOT EXISTS admins (
     added_by    {int},
     created_at  TEXT
 );
+CREATE TABLE IF NOT EXISTS bonus_tx (
+    id             {pk},
+    user_id        {int} NOT NULL,
+    amount         INTEGER NOT NULL,
+    kind           TEXT NOT NULL,
+    order_id       {int},
+    other_user_id  {int},
+    created_at     TEXT
+);
 CREATE TABLE IF NOT EXISTS users (
     id          {int} PRIMARY KEY,
     full_name   TEXT,
@@ -200,6 +209,13 @@ _EXTRA_COLUMNS = [
     ("orders", "paid_at", "TEXT"),
     ("orders", "payment_charge_id", "TEXT"),
     ("orders", "provider_charge_id", "TEXT"),
+    ("users", "bonus", "INTEGER NOT NULL DEFAULT 0"),
+    ("orders", "subtotal", f"{_T['int']}"),
+    ("orders", "bonus_used", "INTEGER NOT NULL DEFAULT 0"),
+    ("orders", "bonus_discount", f"{_T['int']} NOT NULL DEFAULT 0"),
+    ("orders", "bonus_earned", "INTEGER NOT NULL DEFAULT 0"),
+    ("orders", "bonus_awarded", "INTEGER NOT NULL DEFAULT 0"),
+    ("orders", "bonus_refunded", "INTEGER NOT NULL DEFAULT 0"),
 ]
 
 
@@ -436,23 +452,171 @@ async def cart_clear(user_id: int):
 
 
 # ---------------- Buyurtmalar ----------------
+# ---------------- Bonus (💎 brilliant) ----------------
+def bonus_for_amount(amount: int) -> int:
+    """Xarid summasi uchun beriladigan brilliantlar soni (har to'liq BONUS_STEP so'm uchun 1 ta)."""
+    return max(int(amount) // config.BONUS_STEP, 0)
+
+
+async def _bonus_balance(db: _Conn, user_id: int, lock: bool = False) -> int:
+    row = await db.fetchone(
+        "SELECT bonus FROM users WHERE id = ?" + (" FOR UPDATE" if lock and USE_PG else ""), (user_id,)
+    )
+    return int(row["bonus"]) if row else 0
+
+
+async def _bonus_change(db: _Conn, user_id: int, delta: int, kind: str,
+                        order_id: int | None = None, other_user_id: int | None = None):
+    await db.execute("UPDATE users SET bonus = bonus + ? WHERE id = ?", (delta, user_id))
+    await db.execute(
+        "INSERT INTO bonus_tx (user_id, amount, kind, order_id, other_user_id, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+        (user_id, delta, kind, order_id, other_user_id, _now()),
+    )
+
+
+async def get_bonus(user_id: int) -> int:
+    async with _tx() as db:
+        return await _bonus_balance(db, user_id)
+
+
+async def bonus_history(user_id: int, limit: int = 10) -> list[dict]:
+    return await _fetchall(
+        "SELECT * FROM bonus_tx WHERE user_id = ? ORDER BY id DESC LIMIT ?", (user_id, limit)
+    )
+
+
+async def ensure_user(user_id: int, full_name: str | None, username: str | None = None):
+    """Foydalanuvchi bazada bo'lmasa qo'shadi (mavjud bo'lsa o'zgartirmaydi)."""
+    await _execute(
+        "INSERT INTO users (id, full_name, username, created_at) VALUES (?, ?, ?, ?) ON CONFLICT(id) DO NOTHING",
+        (user_id, full_name, username, _now()),
+    )
+
+
+async def transfer_bonus(from_id: int, to_id: int, amount: int) -> int | None:
+    """Brilliantlarni boshqa foydalanuvchiga o'tkazadi. Muvaffaqiyatli bo'lsa — yuboruvchining qoldig'i."""
+    if amount <= 0 or from_id == to_id:
+        return None
+    async with _tx() as db:
+        balance = await _bonus_balance(db, from_id, lock=True)
+        if balance < amount:
+            return None
+        await _bonus_change(db, from_id, -amount, "transfer_out", other_user_id=to_id)
+        await _bonus_change(db, to_id, amount, "transfer_in", other_user_id=from_id)
+        return balance - amount
+
+
+async def admin_give_bonus(user_id: int, amount: int) -> int:
+    async with _tx() as db:
+        await _bonus_change(db, user_id, amount, "admin")
+        return await _bonus_balance(db, user_id)
+
+
+def _bonus_usage(total: int, balance: int, use_bonus: bool) -> tuple[int, int]:
+    """(ishlatiladigan brilliantlar, chegirma so'mda) — chegirma buyurtma summasidan oshmaydi."""
+    if not use_bonus or balance <= 0:
+        return 0, 0
+    used = min(balance, total // config.BONUS_VALUE)
+    return used, used * config.BONUS_VALUE
+
+
+async def order_preview(user_id: int, use_bonus: bool = False) -> dict:
+    """Buyurtma oldidan hisob: mahsulotlar, aksiya, brilliant chegirmasi va yakuniy summa."""
+    async with _tx() as db:
+        return await _order_preview(db, user_id, use_bonus)
+
+
+async def _order_preview(db: _Conn, user_id: int, use_bonus: bool, lock: bool = False) -> dict:
+    items = await _cart_get(db, user_id)
+    subtotal = sum(i["subtotal"] for i in items)
+    balance = await _bonus_balance(db, user_id, lock=lock)
+    used, bonus_discount = _bonus_usage(subtotal, balance, use_bonus)
+    total = subtotal - bonus_discount
+    return {
+        "items": items,
+        "subtotal": subtotal,
+        "promo_discount": sum(i["saved"] for i in items),
+        "balance": balance,
+        "max_usable": _bonus_usage(subtotal, balance, True)[0],
+        "bonus_used": used,
+        "bonus_discount": bonus_discount,
+        "total": total,
+        "bonus_earned": bonus_for_amount(total),
+    }
+
+
+async def award_order_bonus(order_id: int) -> dict | None:
+    """Yetkazilgan buyurtma uchun brilliantlarni hisobga yozadi (bir marta)."""
+    async with _tx() as db:
+        order = await db.fetchone("SELECT * FROM orders WHERE id = ?", (order_id,))
+        if not order or order["bonus_awarded"]:
+            return None
+        earned = int(order["bonus_earned"] or 0)
+        if order["subtotal"] is None:
+            # Bonus tizimidan oldin berilgan buyurtma — brilliantni summadan hisoblaymiz
+            earned = bonus_for_amount(int(order["total"]))
+        if not earned:
+            return None
+        await db.execute("UPDATE orders SET bonus_awarded = 1, bonus_earned = ? WHERE id = ?", (earned, order_id))
+        await _bonus_change(db, order["user_id"], earned, "earn", order_id=order_id)
+        return {"user_id": order["user_id"], "amount": earned,
+                "balance": await _bonus_balance(db, order["user_id"])}
+
+
+async def cancel_order_bonus(order_id: int) -> dict:
+    """Bekor qilingan buyurtma: ishlatilgan brilliantlar qaytariladi, berilganlari qaytarib olinadi."""
+    result = {"refunded": 0, "revoked": 0, "user_id": None}
+    async with _tx() as db:
+        order = await db.fetchone("SELECT * FROM orders WHERE id = ?", (order_id,))
+        if not order:
+            return result
+        user_id = order["user_id"]
+        result["user_id"] = user_id
+        if order["bonus_used"] and not order["bonus_refunded"]:
+            await db.execute("UPDATE orders SET bonus_refunded = 1 WHERE id = ?", (order_id,))
+            await _bonus_change(db, user_id, int(order["bonus_used"]), "refund", order_id=order_id)
+            result["refunded"] = int(order["bonus_used"])
+        if order["bonus_awarded"]:
+            balance = await _bonus_balance(db, user_id, lock=True)
+            revoke = min(balance, int(order["bonus_earned"]))
+            await db.execute("UPDATE orders SET bonus_awarded = 0, bonus_earned = 0 WHERE id = ?", (order_id,))
+            if revoke:
+                await _bonus_change(db, user_id, -revoke, "revoke", order_id=order_id)
+            result["revoked"] = revoke
+        else:
+            await db.execute("UPDATE orders SET bonus_earned = 0 WHERE id = ?", (order_id,))
+    return result
+
+
+async def bonus_stats() -> dict:
+    row = await _fetchone("SELECT COALESCE(SUM(bonus), 0) AS s, COUNT(*) AS n FROM users WHERE bonus > 0")
+    return {"outstanding": int(row["s"]), "holders": int(row["n"])}
+
+
 async def create_order(user_id: int, full_name: str, phone: str, address: str | None,
                        latitude: float | None = None, longitude: float | None = None,
-                       comment: str | None = None, lang: str | None = None) -> int | None:
-    """Savatdagi mahsulotlardan buyurtma yaratadi. Savat bo'sh bo'lsa None qaytaradi."""
+                       comment: str | None = None, lang: str | None = None,
+                       use_bonus: bool = False) -> int | None:
+    """Savatdagi mahsulotlardan buyurtma yaratadi. Savat bo'sh bo'lsa None qaytaradi.
+    use_bonus=True bo'lsa, brilliantlar chegirma sifatida ishlatiladi (balansdan yechiladi)."""
     async with _tx() as db:
-        items = await _cart_get(db, user_id)
+        p = await _order_preview(db, user_id, use_bonus, lock=True)
+        items = p["items"]
         if not items:
             return None
-        total = sum(i["subtotal"] for i in items)
-        discount = sum(i["saved"] for i in items)
+        total = p["total"]
+        fully_paid = total == 0
         order_id = await db.insert(
             "INSERT INTO orders (user_id, full_name, phone, address, latitude, longitude, comment, "
-            "total, discount, lang, status, created_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'new', ?)",
+            "subtotal, total, discount, bonus_used, bonus_discount, bonus_earned, lang, status, created_at, "
+            "payment_status, payment_method) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'new', ?, ?, ?)",
             (user_id, full_name, phone, address, latitude, longitude, comment,
-             total, discount, lang, _now()),
+             p["subtotal"], total, p["promo_discount"], p["bonus_used"], p["bonus_discount"], p["bonus_earned"],
+             lang, _now(), "paid" if fully_paid else "unpaid", "bonus" if fully_paid else None),
         )
+        if p["bonus_used"]:
+            await _bonus_change(db, user_id, -p["bonus_used"], "spend", order_id=order_id)
         await db.executemany(
             "INSERT INTO order_items (order_id, product_id, name, name_i18n, size, price, qty) "
             "VALUES (?, ?, ?, ?, ?, ?, ?)",

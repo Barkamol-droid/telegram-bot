@@ -11,7 +11,7 @@ from aiogram.types import (
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 import pricing
-from config import PAYMENT_NAMES, SHOP_NAME, channel_url, fmt_price, now, payment_providers
+from config import BONUS_VALUE, PAYMENT_NAMES, SHOP_NAME, channel_url, fmt_price, now, payment_providers
 from i18n import LANG_NAMES, fmt_duration, loc, t
 
 BTN_ADMIN = "⚙️ Admin panel"
@@ -26,13 +26,12 @@ def status_label(status: str, lang: str = "uz") -> str:
 def main_menu(lang: str, admin: bool = False) -> ReplyKeyboardMarkup:
     rows = [
         [KeyboardButton(text=t("btn_catalog", lang)), KeyboardButton(text=t("btn_cart", lang))],
-        [KeyboardButton(text=t("btn_promo", lang)), KeyboardButton(text=t("btn_orders", lang))],
-        [KeyboardButton(text=t("btn_about", lang)), KeyboardButton(text=t("btn_contact", lang))],
+        [KeyboardButton(text=t("btn_promo", lang)), KeyboardButton(text=t("btn_bonus", lang))],
+        [KeyboardButton(text=t("btn_orders", lang)), KeyboardButton(text=t("btn_about", lang))],
+        [KeyboardButton(text=t("btn_contact", lang)), KeyboardButton(text=t("btn_lang", lang))],
     ]
-    last = [KeyboardButton(text=t("btn_lang", lang))]
     if channel_url():
-        last.insert(0, KeyboardButton(text=t("btn_channel", lang)))
-    rows.append(last)
+        rows.append([KeyboardButton(text=t("btn_channel", lang))])
     if admin:
         rows.append([KeyboardButton(text=BTN_ADMIN)])
     return ReplyKeyboardMarkup(keyboard=rows, resize_keyboard=True)
@@ -211,6 +210,56 @@ def cart_text(items, lang: str) -> str:
     return "\n".join(lines)
 
 
+def checkout_summary(p: dict, lang: str) -> str:
+    """Savat + brilliant chegirmasi + yakuniy summa + olinadigan bonus."""
+    text = cart_text(p["items"], lang)
+    if p["bonus_used"]:
+        text += (f"\n{t('bonus_discount_line', lang, n=p['bonus_used'])}: -{fmt_price(p['bonus_discount'], lang)}"
+                 f"\n{t('to_pay', lang)}: <b>{fmt_price(p['total'], lang)}</b>")
+    if p["bonus_earned"]:
+        text += f"\n{t('bonus_will_earn', lang, n=p['bonus_earned'])}"
+    return text
+
+
+def bonus_value(n: int, lang: str) -> str:
+    return fmt_price(n * BONUS_VALUE, lang)
+
+
+def use_bonus_kb(lang: str) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text=t("btn_use_bonus", lang), callback_data="bonus_use:1")],
+        [InlineKeyboardButton(text=t("btn_keep_bonus", lang), callback_data="bonus_use:0")],
+    ])
+
+
+def bonus_menu_kb(lang: str, has_bonus: bool) -> InlineKeyboardMarkup | None:
+    if not has_bonus:
+        return None
+    return InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text=t("btn_send_bonus", lang), callback_data="bsend")]])
+
+
+def pick_contact_kb(lang: str) -> ReplyKeyboardMarkup:
+    return ReplyKeyboardMarkup(
+        keyboard=[
+            [KeyboardButton(
+                text=t("btn_pick_contact", lang),
+                request_users=KeyboardButtonRequestUsers(
+                    request_id=2, user_is_bot=False, max_quantity=1, request_name=True, request_username=True,
+                ),
+            )],
+            [KeyboardButton(text=t("btn_cancel", lang))],
+        ],
+        resize_keyboard=True,
+    )
+
+
+def confirm_send_kb(lang: str) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[[
+        InlineKeyboardButton(text=t("btn_send", lang), callback_data="bsend_ok"),
+        InlineKeyboardButton(text=t("btn_cancel", lang), callback_data="bsend_no"),
+    ]])
+
+
 def confirm_kb(lang: str) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[[
         InlineKeyboardButton(text=t("btn_confirm", lang), callback_data="order_confirm"),
@@ -237,9 +286,18 @@ def order_text(order, items, lang: str = "uz", for_admin: bool = False) -> str:
     for i in items:
         name = escape(loc(i, "name", lang) + size_label(i.get("size"), lang))
         lines.append(f"• {name} — {i['qty']} x {fmt_price(i['price'], lang)}")
+    extra = []
     if order.get("discount"):
-        lines.append(f"\n{t('discount', lang)}: -{fmt_price(order['discount'], lang)}")
-    lines.append(("" if order.get("discount") else "\n") + f"{t('total', lang)}: <b>{fmt_price(order['total'], lang)}</b>")
+        extra.append(f"{t('discount', lang)}: -{fmt_price(order['discount'], lang)}")
+    if order.get("bonus_used"):
+        extra.append(f"{t('bonus_discount_line', lang, n=order['bonus_used'])}: -{fmt_price(order['bonus_discount'], lang)}")
+    if extra:
+        lines.append("\n" + "\n".join(extra))
+    lines.append(("" if extra else "\n") + f"{t('total', lang)}: <b>{fmt_price(order['total'], lang)}</b>")
+    if order.get("bonus_awarded") and order.get("bonus_earned"):
+        lines.append(t("bonus_got", lang, n=order["bonus_earned"]))
+    elif order.get("bonus_earned") and order.get("status") != "cancelled":
+        lines.append(t("bonus_will_earn", lang, n=order["bonus_earned"]))
     lines.append(f"{t('status', lang)}: {status_label(order['status'], lang)}")
     lines.append(f"{t('payment', lang)}: {payment_label(order, lang)}")
     return "\n".join(lines)
@@ -248,7 +306,7 @@ def order_text(order, items, lang: str = "uz", for_admin: bool = False) -> str:
 # ---------------- To'lov ----------------
 def payment_label(order, lang: str = "uz") -> str:
     if order.get("payment_status") == "paid":
-        method = PAYMENT_NAMES.get(order.get("payment_method"), order.get("payment_method") or "")
+        method = {**PAYMENT_NAMES, "bonus": "💎"}.get(order.get("payment_method"), order.get("payment_method") or "")
         return t("pay_status_paid", lang, method=method)
     if order.get("payment_method") == "cash":
         return t("pay_status_cash", lang)

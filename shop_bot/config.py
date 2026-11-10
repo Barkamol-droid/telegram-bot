@@ -74,6 +74,10 @@ def is_test_token(provider: str) -> bool:
     return ":TEST:" in PAYMENT_TOKENS.get(provider, "")
 
 
+# Bonus (💎 brilliant): har BONUS_STEP so'm xarid uchun 1 ta, 1 ta = BONUS_VALUE so'm chegirma
+BONUS_STEP = int(os.getenv("BONUS_STEP", "100000"))
+BONUS_VALUE = int(os.getenv("BONUS_VALUE", "1000"))
+
 # Aloqa telefoni («☎️ Aloqa» tugmasida ko'rsatiladi)
 SHOP_PHONE = os.getenv("SHOP_PHONE", "+998900441678").strip()
 

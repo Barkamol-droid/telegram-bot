@@ -17,7 +17,7 @@ import db
 import keyboards as kb
 import pricing
 from config import (
-    ADMIN_IDS, PAYMENT_NAMES, SHOP_NAME, TIMEZONE, fmt_price, is_admin, is_owner, is_test_token, now,
+    ADMIN_IDS, BONUS_VALUE, PAYMENT_NAMES, SHOP_NAME, TIMEZONE, fmt_price, is_admin, is_owner, is_test_token, now,
     payment_providers,
 )
 from i18n import DEFAULT_LANG, LANG_NAMES, all_texts, parse_multilang, t
@@ -601,8 +601,22 @@ async def cb_order_status(callback: CallbackQuery, bot: Bot):
     if order["status"] == status:
         await callback.answer("Holat allaqachon shunday")
         return
+    if order["status"] == "cancelled":
+        await callback.answer("Bekor qilingan buyurtma holatini o'zgartirib bo'lmaydi", show_alert=True)
+        return
     await db.set_order_status(order_id, status)
-    order["status"] = status
+    lang = order.get("lang") or await db.get_user_lang(order["user_id"]) or DEFAULT_LANG
+    bonus_notes = []
+    if status == "delivered":
+        awarded = await db.award_order_bonus(order_id)
+        if awarded:
+            bonus_notes.append(t("bonus_earned_msg", lang, id=order_id, n=awarded["amount"], total=awarded["balance"],
+                                 value=kb.bonus_value(awarded["balance"], lang)))
+    elif status == "cancelled":
+        result = await db.cancel_order_bonus(order_id)
+        if result["refunded"]:
+            bonus_notes.append(t("bonus_refund_msg", lang, id=order_id, n=result["refunded"]))
+    order = await db.get_order(order_id)
     items = await db.get_order_items(order_id)
     try:
         await callback.message.edit_text(
@@ -611,7 +625,7 @@ async def cb_order_status(callback: CallbackQuery, bot: Bot):
     except TelegramBadRequest:
         pass
     await callback.answer(f"Holat o'zgardi: {kb.status_label(status)}")
-    if status == "cancelled" and order.get("payment_status") == "paid":
+    if status == "cancelled" and order.get("payment_status") == "paid" and order.get("payment_method") in PAYMENT_NAMES:
         method = order.get("payment_method") or ""
         await callback.message.answer(
             f"⚠️ Buyurtma #{order_id} <b>onlayn to'langan</b> edi ({method}). Pulni mijozga qaytarishni "
@@ -619,13 +633,39 @@ async def cb_order_status(callback: CallbackQuery, bot: Bot):
             f"To'lov ID: <code>{escape(order.get('provider_charge_id') or '-')}</code>"
         )
     # Mijozga o'z tilida xabar
-    lang = order.get("lang") or await db.get_user_lang(order["user_id"]) or DEFAULT_LANG
     try:
         await bot.send_message(
-            order["user_id"], t("status_changed", lang, id=order_id, status=kb.status_label(status, lang))
+            order["user_id"],
+            "\n\n".join([t("status_changed", lang, id=order_id, status=kb.status_label(status, lang)), *bonus_notes]),
         )
     except Exception as e:
         log.warning("Mijozga (%s) xabar yuborilmadi: %s", order["user_id"], e)
+
+
+# ================= BRILLIANT SOVG'A QILISH =================
+@router.message(Command("bonus"))
+async def cmd_bonus(message: Message, bot: Bot):
+    parts = message.text.split()
+    if len(parts) != 3 or not parts[1].isdigit() or not parts[2].lstrip("-").isdigit() or int(parts[2]) == 0:
+        await message.answer("Foydalanish: <code>/bonus ID SON</code>\nMasalan: <code>/bonus 123456789 5</code> "
+                             "(manfiy son — brilliantni olib qo'yish)")
+        return
+    user_id, amount = int(parts[1]), int(parts[2])
+    user = await db.get_user(user_id)
+    if not user:
+        await message.answer("❗️ Bu ID dagi mijoz topilmadi (u botga /start bosmagan).")
+        return
+    if amount < 0 and await db.get_bonus(user_id) < -amount:
+        await message.answer("❗️ Mijozda buncha brilliant yo'q.")
+        return
+    total = await db.admin_give_bonus(user_id, amount)
+    await message.answer(f"✅ {escape(user['full_name'] or str(user_id))}: {amount:+d} 💎. Endi: {total} 💎")
+    if amount > 0:
+        lang = user.get("lang") or DEFAULT_LANG
+        try:
+            await bot.send_message(user_id, t("bonus_from_shop", lang, n=amount, value=kb.bonus_value(amount, lang), total=total))
+        except Exception as e:
+            log.warning("Mijozga (%s) xabar yuborilmadi: %s", user_id, e)
 
 
 # ================= STATISTIKA =================
@@ -639,6 +679,7 @@ def payment_status_text() -> str:
 @router.callback_query(F.data == "adm:stats")
 async def cb_stats(callback: CallbackQuery):
     s = await db.get_stats()
+    bonus = await db.bonus_stats()
     users = await db.get_users_with_lang()
     by_lang = {code: 0 for code in LANG_NAMES}
     for u in users:
@@ -652,7 +693,10 @@ async def cb_stats(callback: CallbackQuery):
         f"🆕 Yangi buyurtmalar: <b>{s['new_orders']}</b>\n"
         f"💰 Tushum (yetkazilgan): <b>{fmt_price(s['revenue'])}</b>\n"
         f"💳 Onlayn to'langan: <b>{s['paid_orders']}</b> ta — <b>{fmt_price(s['paid_sum'])}</b>\n"
-        f"🔌 To'lov tizimlari: {payment_status_text()}"
+        f"🔌 To'lov tizimlari: {payment_status_text()}\n"
+        f"💎 Mijozlardagi brilliantlar: <b>{bonus['outstanding']}</b> ta ({fmt_price(bonus['outstanding'] * BONUS_VALUE)}), "
+        f"{bonus['holders']} kishida\n\n"
+        "<i>Mijozga brilliant sovg'a qilish: /bonus ID SON (masalan: /bonus 123456789 5)</i>"
     )
     await edit(callback, text, kb.admin_menu_kb())
 

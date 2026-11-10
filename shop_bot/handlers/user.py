@@ -286,23 +286,44 @@ async def order_comment(message: Message, state: FSMContext, lang: str):
     comment = None if message.text in all_texts("btn_skip") else message.text.strip()[:500]
     await state.update_data(comment=comment)
     await message.answer(t("data_received", lang), reply_markup=kb.main_menu(lang, is_admin(message.from_user.id)))
+    # Brilliantlar bo'lsa — ishlatishni taklif qilamiz
+    preview = await db.order_preview(message.from_user.id, use_bonus=True)
+    if preview["bonus_used"] > 0:
+        await state.set_state(OrderForm.bonus)
+        await message.answer(
+            t("ask_use_bonus", lang, n=preview["balance"], value=kb.bonus_value(preview["balance"], lang),
+              use=preview["bonus_used"], disc=kb.fmt_price(preview["bonus_discount"], lang)),
+            reply_markup=kb.use_bonus_kb(lang),
+        )
+        return
+    await state.update_data(use_bonus=False)
     await _ask_confirm(message, state, lang, message.from_user.id)
+
+
+@router.callback_query(OrderForm.bonus, F.data.startswith("bonus_use:"))
+async def cb_use_bonus(callback: CallbackQuery, state: FSMContext, lang: str):
+    await state.update_data(use_bonus=callback.data.endswith(":1"))
+    try:
+        await callback.message.edit_reply_markup(reply_markup=None)
+    except TelegramBadRequest:
+        pass
+    await callback.answer()
+    await _ask_confirm(callback.message, state, lang, callback.from_user.id)
 
 
 async def _ask_confirm(message: Message, state: FSMContext, lang: str, user_id: int, notice: str = ""):
     data = await state.get_data()
-    items = await db.cart_get(user_id)
-    if not items:
+    preview = await db.order_preview(user_id, use_bonus=data.get("use_bonus", False))
+    if not preview["items"]:
         await state.clear()
         await message.answer(t("cart_empty", lang), reply_markup=kb.main_menu(lang, is_admin(user_id)))
         return
-    total = sum(i["subtotal"] for i in items)
-    await state.update_data(expected_total=total)
+    await state.update_data(expected_total=preview["total"])
     await state.set_state(OrderForm.confirm)
     address = escape(data["address"]) if data.get("address") else t("location_sent", lang)
     text = (
         (f"{notice}\n\n" if notice else "")
-        + kb.cart_text(items, lang)
+        + kb.checkout_summary(preview, lang)
         + f"\n\n👤 {escape(data['full_name'])}\n📞 {escape(data['phone'])}\n📍 {address}"
         + (f"\n💬 {escape(data['comment'])}" if data.get("comment") else "")
         + f"\n\n{t('confirm_q', lang)}"
@@ -321,9 +342,9 @@ async def cb_order_confirm(callback: CallbackQuery, state: FSMContext, bot: Bot,
     data = await state.get_data()
     user_id = callback.from_user.id
 
-    # Tasdiqlash oynasi ochilgandan beri narx o'zgargan bo'lsa (masalan, aksiya tugagan) — qayta so'raymiz
-    items = await db.cart_get(user_id)
-    if items and sum(i["subtotal"] for i in items) != data.get("expected_total"):
+    # Tasdiqlash oynasi ochilgandan beri summa o'zgargan bo'lsa (aksiya tugagan, brilliant sarflangan) — qayta so'raymiz
+    preview = await db.order_preview(user_id, use_bonus=data.get("use_bonus", False))
+    if preview["items"] and preview["total"] != data.get("expected_total"):
         try:
             await callback.message.edit_reply_markup(reply_markup=None)
         except TelegramBadRequest:
@@ -336,6 +357,7 @@ async def cb_order_confirm(callback: CallbackQuery, state: FSMContext, bot: Bot,
     order_id = await db.create_order(
         user_id, data["full_name"], data["phone"], data.get("address"),
         data.get("latitude"), data.get("longitude"), data.get("comment"), lang,
+        use_bonus=data.get("use_bonus", False),
     )
     if not order_id:
         await show(callback, t("cart_empty", lang))
@@ -347,7 +369,10 @@ async def cb_order_confirm(callback: CallbackQuery, state: FSMContext, bot: Bot,
         callback,
         f"{t('order_accepted', lang)}\n\n{kb.order_text(order, items, lang)}\n\n{t('order_thanks', lang)}",
     )
-    await offer_payment(callback.message, order_id, lang)
+    if order["payment_method"] == "bonus":
+        await callback.message.answer(t("paid_by_bonus", lang))
+    else:
+        await offer_payment(callback.message, order_id, lang)
 
     # Adminlarga xabar (o'zbek tilida)
     admin_text = "🔔 <b>Yangi buyurtma!</b>\n\n" + kb.order_text(order, items, "uz", for_admin=True)
