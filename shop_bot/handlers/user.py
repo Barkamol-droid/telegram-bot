@@ -7,6 +7,7 @@ from aiogram.exceptions import TelegramBadRequest
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, InlineKeyboardMarkup, Message
 
+import colors as color_mod
 import db
 import keyboards as kb
 from config import SHOP_NAME, SHOP_PHONE, _env_text, all_admin_ids, fmt_phone, is_admin
@@ -103,10 +104,12 @@ async def cb_product(callback: CallbackQuery, lang: str):
         return
     promo = await db.get_promo()
     sizes = product_sizes(product)
-    text = kb.product_text(product, lang, promo, sizes)
+    colors = color_mod.product_colors(product)
+    text = kb.product_text(product, lang, promo, sizes, colors)
     # Rasm bo'lsa — rasm kartasi (+ «Videoni ko'rish» tugmasi); faqat video bo'lsa — video kartasi
     has_video_button = bool(product.get("video_id") and product["photo_id"])
-    markup = kb.product_kb(product["id"], product["category_id"], lang, sizes=sizes, has_video=has_video_button)
+    markup = kb.product_kb(product["id"], product["category_id"], lang, sizes=sizes, has_video=has_video_button,
+                           colors=colors)
     if product["photo_id"] or product.get("video_id"):
         try:
             await callback.message.delete()
@@ -131,7 +134,13 @@ async def cb_product_video(callback: CallbackQuery, lang: str):
     await callback.answer()
 
 
-async def _update_card(callback: CallbackQuery, lang: str, product_id: int, qty: int, size: str):
+def _color_by_index(colors: list[str], ci: str) -> str:
+    """Rang raqamidan rangni olish (noto'g'ri bo'lsa — bo'sh)."""
+    return colors[int(ci)] if ci.isdigit() and int(ci) < len(colors) else ""
+
+
+async def _update_card(callback: CallbackQuery, lang: str, product_id: int, qty: int, size: str, ci: str = "",
+                       notice: str | None = None):
     if qty < 1 or qty > 99:
         await callback.answer(t("qty_range", lang))
         return
@@ -140,39 +149,57 @@ async def _update_card(callback: CallbackQuery, lang: str, product_id: int, qty:
         await callback.answer(t("not_found_product", lang), show_alert=True)
         return
     sizes = product_sizes(product)
+    colors = color_mod.product_colors(product)
     if size and size not in sizes:
         size = ""
+    if not _color_by_index(colors, ci):
+        ci = ""
     has_video_button = bool(product.get("video_id") and product["photo_id"])
     try:
         await callback.message.edit_reply_markup(
-            reply_markup=kb.product_kb(product_id, product["category_id"], lang, qty, sizes, size, has_video_button)
+            reply_markup=kb.product_kb(product_id, product["category_id"], lang, qty, sizes, size, has_video_button,
+                                       colors, ci)
         )
     except TelegramBadRequest:
         pass
-    await callback.answer(t("size_selected", lang, size=size) if size else None)
+    await callback.answer(notice)
 
 
 @router.callback_query(F.data.startswith("qty:"))
 async def cb_qty(callback: CallbackQuery, lang: str):
-    parts = callback.data.split(":")
-    size = parts[3] if len(parts) > 3 else ""
-    await _update_card(callback, lang, int(parts[1]), int(parts[2]), size)
+    parts = callback.data.split(":") + ["", ""]
+    await _update_card(callback, lang, int(parts[1]), int(parts[2]), parts[3], parts[4])
 
 
 @router.callback_query(F.data.startswith("sz:"))
 async def cb_size(callback: CallbackQuery, lang: str):
-    _, product_id, size, qty = callback.data.split(":")
-    await _update_card(callback, lang, int(product_id), int(qty), size)
+    parts = callback.data.split(":") + [""]
+    _, product_id, size, qty, ci = parts[:5]
+    await _update_card(callback, lang, int(product_id), int(qty), size, ci, t("size_selected", lang, size=size))
+
+
+@router.callback_query(F.data.startswith("cl:"))
+async def cb_color(callback: CallbackQuery, lang: str):
+    parts = callback.data.split(":") + [""]
+    _, product_id, ci, qty, size = parts[:5]
+    product = await db.get_product(int(product_id))
+    color = _color_by_index(color_mod.product_colors(product), ci) if product else ""
+    notice = t("color_selected", lang, color=color_mod.name(color, lang)) if color else None
+    await _update_card(callback, lang, int(product_id), int(qty), size, ci, notice)
 
 
 @router.callback_query(F.data.startswith("add:"))
 async def cb_add_to_cart(callback: CallbackQuery, lang: str):
-    parts = callback.data.split(":")
-    product_id, qty = int(parts[1]), int(parts[2])
-    size = parts[3] if len(parts) > 3 else ""
+    parts = callback.data.split(":") + ["", ""]
+    product_id, qty, size, ci = int(parts[1]), int(parts[2]), parts[3], parts[4]
     product = await db.get_product(product_id)
     if not product:
         await callback.answer(t("not_found_product", lang), show_alert=True)
+        return
+    colors = color_mod.product_colors(product)
+    color = _color_by_index(colors, ci)
+    if colors and not color:
+        await callback.answer(t("choose_color_first", lang), show_alert=True)
         return
     sizes = product_sizes(product)
     if sizes and size not in sizes:
@@ -180,9 +207,9 @@ async def cb_add_to_cart(callback: CallbackQuery, lang: str):
         return
     if not sizes:
         size = ""
-    await db.cart_add(callback.from_user.id, product["id"], qty, size)
+    await db.cart_add(callback.from_user.id, product["id"], qty, size, color)
     await callback.answer(
-        t("added", lang, name=loc(product, "name", lang), size=kb.size_label(size, lang), qty=qty),
+        t("added", lang, name=loc(product, "name", lang), size=kb.variant_label(size, color, lang), qty=qty),
         show_alert=True,
     )
 
@@ -219,9 +246,12 @@ async def cb_cart(callback: CallbackQuery, lang: str):
 
 @router.callback_query(F.data.startswith("cart_del:"))
 async def cb_cart_del(callback: CallbackQuery, lang: str):
-    parts = callback.data.split(":")
-    size = parts[2] if len(parts) > 2 else ""
-    await db.cart_remove(callback.from_user.id, int(parts[1]), size)
+    """cart_del:<n> — savatdagi n-chi qatorni o'chirish (ro'yxat tartibi bo'yicha)."""
+    index = callback.data.split(":")[1]
+    items = await db.cart_get(callback.from_user.id)
+    if index.isdigit() and int(index) < len(items):
+        item = items[int(index)]
+        await db.cart_remove(callback.from_user.id, item["product_id"], item["size"], item["color"])
     text, markup = await _cart_view(callback.from_user.id, lang)
     await show(callback, text, markup)
 

@@ -22,6 +22,7 @@ from aiogram import Bot
 from aiogram.utils.web_app import safe_parse_webapp_init_data
 from aiohttp import web
 
+import colors as color_mod
 import db
 import pricing
 from config import (
@@ -43,7 +44,7 @@ BOT_KEYS = [
     "price", "sizes", "choose_size_first", "total", "saved", "to_pay", "bonus_will_earn", "pcs",
     "promo_ends_in", "promo_starts_in", "promo_footer", "prices_changed", "cart_empty", "bonus_discount_line",
     "btn_catalog", "discount", "bad_name", "bad_phone", "address_short", "dur_d", "dur_h", "dur_m",
-    "promo_title_1111", "promo_title_custom",
+    "promo_title_1111", "promo_title_custom", "choose_color_first",
 ]
 
 
@@ -70,6 +71,10 @@ def _product_json(p: dict, lang: str, promo: dict | None) -> dict:
         "old_price": old,
         "percent": percent,
         "sizes": product_sizes(p),
+        "colors": [
+            {"key": c, "name": color_mod.name(c, lang), "hex": color_mod.hex_color(c)}
+            for c in color_mod.product_colors(p)
+        ],
         "photo": _media_url(p["photo_id"]),
         "video": _media_url(p["video_id"]) if video_ok else None,
     }
@@ -80,6 +85,7 @@ def _cart_json(preview: dict, lang: str) -> dict:
         "items": [
             {
                 "product_id": i["product_id"], "size": i["size"], "qty": i["qty"],
+                "color": i["color"], "color_name": color_mod.name(i["color"], lang) if i["color"] else "",
                 "name": loc(i, "name", lang), "price": i["price"], "old_price": i["old_price"],
                 "percent": i["percent"], "subtotal": i["subtotal"],
             }
@@ -175,6 +181,7 @@ async def set_cart(request: web.Request) -> web.Response:
     try:
         body = await request.json()
         product_id, qty, size = int(body["product_id"]), int(body["qty"]), str(body.get("size") or "")
+        color = str(body.get("color") or "")
     except (ValueError, KeyError, TypeError):
         return web.json_response({"error": "bad_request"}, status=400)
     product = await db.get_product(product_id)
@@ -185,7 +192,12 @@ async def set_cart(request: web.Request) -> web.Response:
         return web.json_response({"error": "size_required"}, status=400)
     if not sizes:
         size = ""
-    await db.cart_set(user.id, product_id, size, max(0, min(qty, 99)))
+    colors = color_mod.product_colors(product)
+    if qty > 0 and colors and color not in colors:
+        return web.json_response({"error": "color_required"}, status=400)
+    if not colors and qty > 0:
+        color = ""
+    await db.cart_set(user.id, product_id, size, max(0, min(qty, 99)), color)
     preview = await db.order_preview(user.id, use_bonus=body.get("use_bonus") is True)
     return web.json_response(_cart_json(preview, request["lang"]))
 

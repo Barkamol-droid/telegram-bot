@@ -13,6 +13,7 @@ aksiyalar (masalan 11.11), uzuk o'lchamini tanlash, savat, buyurtma berish va ad
 - 🌐 Til tanlash: birinchi /start da va «🌐 Til» tugmasi orqali (o'zbek, rus, tojik, qozoq)
 - 🔥 Aksiya: chegirmali narxlar (eski narx chizilgan), tugashigacha qolgan vaqt, savatda «Tejadingiz»
 - 🛍 Katalog — kategoriyalar va mahsulotlar (rasm, tavsif, narx)
+- 🎨 Rang tanlash (Sariq/Oq/Qizil oltin, Kumush, Platina, Qora yoki o'z ranglaringiz) — botda va saytda
 - 📏 O'lcham tanlash (uzuk, zanjir va h.k.) — o'lchami bor mahsulotni o'lchamsiz savatga qo'shib bo'lmaydi
 - ➖/➕ miqdor tanlash va savatga qo'shish
 - 🛒 Savat — ko'rish, mahsulotni olib tashlash, tozalash
@@ -31,6 +32,8 @@ aksiyalar (masalan 11.11), uzuk o'lchamini tanlash, savat, buyurtma berish va ad
   «📢 Mijozlarga e'lon qilish» — har bir mijozga o'z tilida xabar; «👁 Mijozlar qanday ko'radi» — 4 tilda ko'rish
 - 💎 Brilliantlar: buyurtma «🚚 Yetkazildi» qilinganda mijozga avtomatik beriladi; bekor qilinsa,
   ishlatilganlari qaytariladi. `/bonus ID SON` — mijozga brilliant sovg'a qilish. Statistikada jami brilliantlar
+- 🎨 Ranglar: mahsulot qo'shishda tayyor ranglarni belgilash yoki o'z rangini yozish (`Yashil | Зелёный | Сабз | Жасыл`);
+  mavjud mahsulot ranglari — «🎬 Rasm / video» → mahsulot → «🎨 Ranglarni o'zgartirish»
 - 🎬 Rasm / video: mahsulot qo'shishda video yuklash va mavjud mahsulotning rasm/videosini almashtirish
 - 👥 Adminlar: bosh admin yangi adminni telefon kontaktlaridan tanlab (yoki ID orqali) qo'shadi va o'chiradi.
   Qo'shilgan adminlar buyurtmalarni oladi, mahsulot va aksiyalarni boshqaradi

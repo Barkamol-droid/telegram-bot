@@ -74,8 +74,9 @@ CREATE TABLE IF NOT EXISTS cart (
     user_id     {int} NOT NULL,
     product_id  {int} NOT NULL,
     size        TEXT NOT NULL DEFAULT '',
+    color       TEXT NOT NULL DEFAULT '',
     qty         INTEGER NOT NULL,
-    PRIMARY KEY (user_id, product_id, size)
+    PRIMARY KEY (user_id, product_id, size, color)
 );
 CREATE TABLE IF NOT EXISTS orders (
     id          {pk},
@@ -98,6 +99,7 @@ CREATE TABLE IF NOT EXISTS order_items (
     name        TEXT NOT NULL,
     name_i18n   TEXT,
     size        TEXT NOT NULL DEFAULT '',
+    color       TEXT NOT NULL DEFAULT '',
     price       {int} NOT NULL,
     qty         INTEGER NOT NULL
 );
@@ -212,6 +214,8 @@ _EXTRA_COLUMNS = [
     ("users", "bonus", "INTEGER NOT NULL DEFAULT 0"),
     ("products", "video_id", "TEXT"),
     ("products", "video_size", "INTEGER"),
+    ("products", "colors", "TEXT"),
+    ("order_items", "color", "TEXT NOT NULL DEFAULT ''"),
     ("orders", "subtotal", f"{_T['int']}"),
     ("orders", "bonus_used", "INTEGER NOT NULL DEFAULT 0"),
     ("orders", "bonus_discount", f"{_T['int']} NOT NULL DEFAULT 0"),
@@ -229,6 +233,29 @@ async def _add_missing_columns(db: _Conn):
             existing = {r["name"] for r in await db.fetchall(f"PRAGMA table_info({table})")}
             if column not in existing:
                 await db.execute(f"ALTER TABLE {table} ADD COLUMN {column} {col_type}")
+
+
+async def _migrate_cart_color(db: _Conn):
+    """Savat jadvaliga «color» ustunini qo'shish (asosiy kalit ham o'zgaradi, savatdagilar saqlanadi)."""
+    if USE_PG:
+        row = await db.fetchone(
+            "SELECT 1 AS ok FROM information_schema.columns WHERE table_name = 'cart' AND column_name = 'color'"
+        )
+        if row:
+            return
+        await db.execute("ALTER TABLE cart ADD COLUMN color TEXT NOT NULL DEFAULT ''")
+        await db.execute("ALTER TABLE cart DROP CONSTRAINT IF EXISTS cart_pkey")
+        await db.execute("ALTER TABLE cart ADD PRIMARY KEY (user_id, product_id, size, color)")
+        return
+    columns = {r["name"] for r in await db.fetchall("PRAGMA table_info(cart)")}
+    if "color" in columns:
+        return
+    await db.execute("ALTER TABLE cart RENAME TO cart_old")
+    await db.raw.executescript(SCHEMA)
+    await db.execute(
+        "INSERT INTO cart (user_id, product_id, size, color, qty) SELECT user_id, product_id, size, '', qty FROM cart_old"
+    )
+    await db.execute("DROP TABLE cart_old")
 
 
 async def _sqlite_migrate(db: _Conn):
@@ -258,6 +285,7 @@ async def init_db():
     async with _tx() as db:
         if not USE_PG:
             await _sqlite_migrate(db)
+        await _migrate_cart_color(db)
         await _add_missing_columns(db)
         # Birinchi ishga tushirishda standart kategoriyalarni yaratish
         if not await db.fetchone("SELECT 1 FROM meta WHERE key = 'seeded'"):
@@ -396,12 +424,13 @@ def product_sizes(product) -> list[str]:
 async def add_product(category_id: int, name: str, description: str | None,
                       price: int, photo_id: str | None, sizes: list[str] | None = None,
                       name_i18n: str | None = None, description_i18n: str | None = None,
-                      video_id: str | None = None, video_size: int | None = None) -> int:
+                      video_id: str | None = None, video_size: int | None = None,
+                      colors_json: str | None = None) -> int:
     return await _insert(
         "INSERT INTO products (category_id, name, name_i18n, description, description_i18n, price, photo_id, sizes, "
-        "video_id, video_size) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "video_id, video_size, colors) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         (category_id, name, name_i18n, description, description_i18n, price, photo_id,
-         ",".join(sizes) if sizes else None, video_id, video_size),
+         ",".join(sizes) if sizes else None, video_id, video_size, colors_json),
     )
 
 
@@ -411,6 +440,10 @@ async def get_all_products() -> list[dict]:
         "SELECT p.* FROM products p JOIN categories c ON c.id = p.category_id "
         "WHERE p.is_active = 1 ORDER BY p.id DESC"
     )
+
+
+async def set_product_colors(product_id: int, colors_json: str | None):
+    await _execute("UPDATE products SET colors = ? WHERE id = ?", (colors_json, product_id))
 
 
 async def set_product_photo(product_id: int, photo_id: str | None):
@@ -436,15 +469,15 @@ async def get_last_contact(user_id: int) -> dict | None:
     )
 
 
-async def cart_set(user_id: int, product_id: int, size: str, qty: int):
+async def cart_set(user_id: int, product_id: int, size: str, qty: int, color: str = ""):
     """Savatdagi miqdorni aniq qiymatga o'rnatadi (0 — o'chiradi)."""
     if qty <= 0:
-        await cart_remove(user_id, product_id, size)
+        await cart_remove(user_id, product_id, size, color)
         return
     await _execute(
-        "INSERT INTO cart (user_id, product_id, size, qty) VALUES (?, ?, ?, ?) "
-        "ON CONFLICT(user_id, product_id, size) DO UPDATE SET qty = excluded.qty",
-        (user_id, product_id, size, min(qty, 99)),
+        "INSERT INTO cart (user_id, product_id, size, color, qty) VALUES (?, ?, ?, ?, ?) "
+        "ON CONFLICT(user_id, product_id, size, color) DO UPDATE SET qty = excluded.qty",
+        (user_id, product_id, size, color, min(qty, 99)),
     )
 
 
@@ -455,12 +488,12 @@ async def delete_product(product_id: int):
 
 
 # ---------------- Savat ----------------
-async def cart_add(user_id: int, product_id: int, qty: int, size: str = ""):
+async def cart_add(user_id: int, product_id: int, qty: int, size: str = "", color: str = ""):
     await _execute(
-        "INSERT INTO cart (user_id, product_id, size, qty) VALUES (?, ?, ?, ?) "
-        "ON CONFLICT(user_id, product_id, size) DO UPDATE SET qty = "
+        "INSERT INTO cart (user_id, product_id, size, color, qty) VALUES (?, ?, ?, ?, ?) "
+        "ON CONFLICT(user_id, product_id, size, color) DO UPDATE SET qty = "
         "CASE WHEN cart.qty + excluded.qty > 99 THEN 99 ELSE cart.qty + excluded.qty END",
-        (user_id, product_id, size, qty),
+        (user_id, product_id, size, color, qty),
     )
 
 
@@ -473,9 +506,9 @@ async def _cart_get(db: _Conn, user_id: int):
     """Savatdagi mahsulotlar — joriy aksiya hisobga olingan narxlar bilan.
     Har bir qatorda: price (yakuniy), old_price (aksiyadan oldingi yoki None), percent, subtotal."""
     rows = await db.fetchall(
-        "SELECT c.product_id, c.size, c.qty, p.name, p.name_i18n, p.price, p.category_id "
+        "SELECT c.product_id, c.size, c.color, c.qty, p.name, p.name_i18n, p.price, p.category_id "
         "FROM cart c JOIN products p ON p.id = c.product_id "
-        "WHERE c.user_id = ? AND p.is_active = 1 ORDER BY p.name, c.size",
+        "WHERE c.user_id = ? AND p.is_active = 1 ORDER BY p.name, c.size, c.color",
         (user_id,),
     )
     meta = await db.fetchone("SELECT value FROM meta WHERE key = 'promo'")
@@ -487,9 +520,10 @@ async def _cart_get(db: _Conn, user_id: int):
     return rows
 
 
-async def cart_remove(user_id: int, product_id: int, size: str = ""):
+async def cart_remove(user_id: int, product_id: int, size: str = "", color: str = ""):
     await _execute(
-        "DELETE FROM cart WHERE user_id = ? AND product_id = ? AND size = ?", (user_id, product_id, size)
+        "DELETE FROM cart WHERE user_id = ? AND product_id = ? AND size = ? AND color = ?",
+        (user_id, product_id, size, color),
     )
 
 
@@ -664,9 +698,9 @@ async def create_order(user_id: int, full_name: str, phone: str, address: str | 
         if p["bonus_used"]:
             await _bonus_change(db, user_id, -p["bonus_used"], "spend", order_id=order_id)
         await db.executemany(
-            "INSERT INTO order_items (order_id, product_id, name, name_i18n, size, price, qty) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?)",
-            [(order_id, i["product_id"], i["name"], i["name_i18n"], i["size"], i["price"], i["qty"])
+            "INSERT INTO order_items (order_id, product_id, name, name_i18n, size, color, price, qty) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            [(order_id, i["product_id"], i["name"], i["name_i18n"], i["size"], i["color"], i["price"], i["qty"])
              for i in items],
         )
         await db.execute("DELETE FROM cart WHERE user_id = ?", (user_id,))

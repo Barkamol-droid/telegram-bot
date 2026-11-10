@@ -19,6 +19,7 @@ class AddProduct(StatesGroup):
     description = State()
     price = State()
     sizes = State()
+    colors = State()
     photo = State()
     video = State()
 
@@ -42,4 +43,8 @@ class BonusSend(StatesGroup):
 
 
 class EditMedia(StatesGroup):
+    wait = State()
+
+
+class EditColors(StatesGroup):
     wait = State()

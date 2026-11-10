@@ -11,6 +11,7 @@ from aiogram.types import (
 )
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
+import colors as color_mod
 import pricing
 from config import BONUS_VALUE, PAYMENT_NAMES, SHOP_NAME, WEBAPP_URL, channel_url, fmt_price, now, payment_providers
 from i18n import LANG_NAMES, fmt_duration, loc, t
@@ -145,22 +146,35 @@ def open_shop_kb(lang: str, path: str = "") -> InlineKeyboardMarkup | None:
 
 
 def product_kb(product_id: int, category_id: int, lang: str, qty: int = 1,
-               sizes: list[str] | None = None, size: str = "", has_video: bool = False) -> InlineKeyboardMarkup:
-    """Mahsulot kartasi. sizes bo'lsa — o'lcham tanlash tugmalari chiqadi.
-    Callback formatlari: sz:<id>:<o'lcham>:<miqdor>, qty:<id>:<miqdor>:<o'lcham>, add:<id>:<miqdor>:<o'lcham>"""
+               sizes: list[str] | None = None, size: str = "", has_video: bool = False,
+               colors: list[str] | None = None, ci: str = "") -> InlineKeyboardMarkup:
+    """Mahsulot kartasi: ranglar, o'lchamlar, miqdor, savatga qo'shish.
+    ci — tanlangan rangning mahsulot ranglari ro'yxatidagi tartib raqami ("" — tanlanmagan).
+    Callback formatlari (oxirgi qism — rang raqami):
+      cl:<id>:<rang>:<miqdor>:<o'lcham>, sz:<id>:<o'lcham>:<miqdor>:<rang>,
+      qty:<id>:<miqdor>:<o'lcham>:<rang>, add:<id>:<miqdor>:<o'lcham>:<rang>"""
     rows = []
+    if colors:
+        color_buttons = [
+            InlineKeyboardButton(
+                text=("✅ " if str(i) == ci else "") + color_mod.label(c, lang),
+                callback_data=f"cl:{product_id}:{i}:{qty}:{size}",
+            )
+            for i, c in enumerate(colors)
+        ]
+        rows += [color_buttons[i:i + 2] for i in range(0, len(color_buttons), 2)]
     if sizes:
         size_buttons = [
-            InlineKeyboardButton(text=f"✅ {s}" if s == size else s, callback_data=f"sz:{product_id}:{s}:{qty}")
+            InlineKeyboardButton(text=f"✅ {s}" if s == size else s, callback_data=f"sz:{product_id}:{s}:{qty}:{ci}")
             for s in sizes
         ]
         rows += [size_buttons[i:i + 4] for i in range(0, len(size_buttons), 4)]
     rows.append([
-        InlineKeyboardButton(text="➖", callback_data=f"qty:{product_id}:{qty - 1}:{size}"),
+        InlineKeyboardButton(text="➖", callback_data=f"qty:{product_id}:{qty - 1}:{size}:{ci}"),
         InlineKeyboardButton(text=f"{qty} {t('pcs', lang)}", callback_data="noop"),
-        InlineKeyboardButton(text="➕", callback_data=f"qty:{product_id}:{qty + 1}:{size}"),
+        InlineKeyboardButton(text="➕", callback_data=f"qty:{product_id}:{qty + 1}:{size}:{ci}"),
     ])
-    rows.append([InlineKeyboardButton(text=t("btn_add_cart", lang), callback_data=f"add:{product_id}:{qty}:{size}")])
+    rows.append([InlineKeyboardButton(text=t("btn_add_cart", lang), callback_data=f"add:{product_id}:{qty}:{size}:{ci}")])
     if has_video:
         rows.append([InlineKeyboardButton(text=t("btn_video", lang), callback_data=f"pvid:{product_id}")])
     rows.append([
@@ -176,11 +190,15 @@ def price_line(final: int, old: int | None, percent: int | None, lang: str) -> s
     return f"<b>{fmt_price(final, lang)}</b>"
 
 
-def product_text(p, lang: str, promo: dict | None, sizes: list[str] | None = None) -> str:
+def product_text(p, lang: str, promo: dict | None, sizes: list[str] | None = None,
+                 colors: list[str] | None = None) -> str:
     text = f"💎 <b>{escape(loc(p, 'name', lang))}</b>\n\n"
     description = loc(p, "description", lang)
     if description:
         text += f"{escape(description)}\n\n"
+    if colors:
+        names = ", ".join(color_mod.name(c, lang) for c in colors)
+        text += f"{t('colors', lang)}: {escape(names)}\n{t('choose_color_hint', lang)}\n\n"
     if sizes:
         text += f"{t('sizes', lang)}: {escape(', '.join(sizes))}\n{t('choose_size_hint', lang)}\n\n"
     final, old, percent = pricing.price_info(int(p["price"]), p["category_id"], promo)
@@ -195,13 +213,24 @@ def size_label(size: str | None, lang: str) -> str:
     return t("size_label", lang, size=size) if size else ""
 
 
+def variant_label(size: str | None, color: str | None, lang: str) -> str:
+    """« (o'lcham: 17, rang: Oq oltin)» — o'lcham va/yoki rang bo'lsa."""
+    parts = []
+    if size:
+        parts.append(t("variant_size", lang, v=size))
+    if color:
+        parts.append(t("variant_color", lang, v=color_mod.name(color, lang)))
+    return f" ({', '.join(parts)})" if parts else ""
+
+
 # ---------------- Savat ----------------
 def cart_kb(items, lang: str) -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
-    for i in items:
+    for n, i in enumerate(items):
+        variant = ", ".join(x for x in [i["size"], color_mod.name(i["color"], lang) if i.get("color") else ""] if x)
         name = loc(i, "name", lang)
-        label = f"{name} ({i['size']})" if i["size"] else name
-        kb.button(text=f"❌ {label}", callback_data=f"cart_del:{i['product_id']}:{i['size']}")
+        label = f"{name} ({variant})" if variant else name
+        kb.button(text=f"❌ {label}", callback_data=f"cart_del:{n}")
     kb.button(text=t("btn_clear_cart", lang), callback_data="cart_clear")
     kb.button(text=t("btn_checkout", lang), callback_data="checkout")
     kb.adjust(1)
@@ -211,7 +240,7 @@ def cart_kb(items, lang: str) -> InlineKeyboardMarkup:
 def cart_text(items, lang: str) -> str:
     lines = [t("cart_title", lang) + "\n"]
     for n, i in enumerate(items, 1):
-        name = escape(loc(i, "name", lang) + size_label(i["size"], lang))
+        name = escape(loc(i, "name", lang) + variant_label(i["size"], i.get("color"), lang))
         unit = price_line(i["price"], i.get("old_price"), i.get("percent"), lang)
         lines.append(f"{n}. {name}\n    {i['qty']} x {unit} = <b>{fmt_price(i['subtotal'], lang)}</b>")
     total = sum(i["subtotal"] for i in items)
@@ -296,7 +325,7 @@ def order_text(order, items, lang: str = "uz", for_admin: bool = False) -> str:
     lines.append(f"🕒 {order['created_at']}")
     lines.append("")
     for i in items:
-        name = escape(loc(i, "name", lang) + size_label(i.get("size"), lang))
+        name = escape(loc(i, "name", lang) + variant_label(i.get("size"), i.get("color"), lang))
         lines.append(f"• {name} — {i['qty']} x {fmt_price(i['price'], lang)}")
     extra = []
     if order.get("discount"):
@@ -415,6 +444,20 @@ def pick_admin_kb() -> ReplyKeyboardMarkup:
         ],
         resize_keyboard=True,
     )
+
+
+def colors_select_kb(selected: list[str], prefix: str) -> InlineKeyboardMarkup:
+    """Admin uchun ranglarni belgilash: tayyor ranglar (✅ belgilanadi) + qo'shilgan maxsus ranglar."""
+    kb = InlineKeyboardBuilder()
+    for code in color_mod.PRESETS:
+        mark = "✅ " if code in selected else ""
+        kb.button(text=mark + color_mod.label(code, "uz"), callback_data=f"{prefix}:{code}")
+    for i, custom in enumerate(selected):
+        if custom not in color_mod.PRESETS:
+            kb.button(text="✅ " + color_mod.label(custom, "uz"), callback_data=f"{prefix}x:{i}")
+    kb.button(text="✔️ Tayyor", callback_data=f"{prefix}_done")
+    kb.adjust(2)
+    return kb.as_markup()
 
 
 def admin_promo_kb(has_promo: bool) -> InlineKeyboardMarkup:

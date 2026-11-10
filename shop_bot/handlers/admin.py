@@ -13,6 +13,7 @@ from aiogram.filters import BaseFilter, Command
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message, TelegramObject
 
+import colors as color_mod
 import db
 import keyboards as kb
 import pricing
@@ -21,7 +22,7 @@ from config import (
     payment_providers,
 )
 from i18n import DEFAULT_LANG, LANG_NAMES, all_texts, parse_multilang, t
-from states import AddCategory, AddProduct, AdminForm, Broadcast, EditMedia, PromoForm
+from states import AddCategory, AddProduct, AdminForm, Broadcast, EditColors, EditMedia, PromoForm
 
 log = logging.getLogger(__name__)
 
@@ -488,7 +489,73 @@ async def add_product_sizes(message: Message, state: FSMContext):
                 "har biri 8 belgigacha). Masalan: 16, 16.5, 17"
             )
             return
-    await state.update_data(sizes=sizes)
+    await state.update_data(sizes=sizes, colors=[])
+    await state.set_state(AddProduct.colors)
+    await message.answer(COLORS_HELP, reply_markup=kb.skip_cancel_kb(DEFAULT_LANG))
+    await message.answer("🎨 Ranglar:", reply_markup=kb.colors_select_kb([], "pc"))
+
+
+COLORS_HELP = (
+    "🎨 Mahsulot <b>ranglarini</b> belgilang (bir nechtasini tanlash mumkin), so'ng «✔️ Tayyor» ni bosing.\n\n"
+    "Ro'yxatda yo'q rangni yozib yuboring (vergul bilan bir nechta; 4 tilda — «|» bilan):\n"
+    "<code>Yashil | Зелёный | Сабз | Жасыл</code>\n\n"
+    "Rang kerak bo'lmasa — «O'tkazib yuborish»."
+)
+
+
+def _toggle_color(colors: list[str], callback_data: str) -> list[str]:
+    """«pc:yg» — tayyor rangni yoqish/o'chirish; «pcx:2» — maxsus rangni olib tashlash."""
+    key, value = callback_data.split(":", 1)
+    colors = list(colors)
+    if key.endswith("x"):
+        if value.isdigit() and int(value) < len(colors):
+            colors.pop(int(value))
+    elif value in colors:
+        colors.remove(value)
+    elif len(colors) < color_mod.MAX_COLORS:
+        colors.append(value)
+    return colors
+
+
+@router.callback_query(AddProduct.colors, F.data.startswith("pc:") | F.data.startswith("pcx:"))
+async def cb_add_product_color(callback: CallbackQuery, state: FSMContext):
+    colors = _toggle_color((await state.get_data()).get("colors", []), callback.data)
+    await state.update_data(colors=colors)
+    try:
+        await callback.message.edit_reply_markup(reply_markup=kb.colors_select_kb(colors, "pc"))
+    except TelegramBadRequest:
+        pass
+    await callback.answer()
+
+
+@router.message(AddProduct.colors, F.text)
+async def add_product_colors_text(message: Message, state: FSMContext):
+    if is_skip(message.text):
+        await state.update_data(colors=[])
+        await _ask_product_photo(message, state)
+        return
+    colors = (await state.get_data()).get("colors", [])
+    for custom in color_mod.parse_custom(message.text):
+        if custom not in colors and len(colors) < color_mod.MAX_COLORS:
+            colors.append(custom)
+    await state.update_data(colors=colors)
+    await message.answer("🎨 Ranglar:", reply_markup=kb.colors_select_kb(colors, "pc"))
+
+
+@router.callback_query(AddProduct.colors, F.data == "pc_done")
+async def cb_add_product_colors_done(callback: CallbackQuery, state: FSMContext):
+    try:
+        await callback.message.edit_reply_markup(reply_markup=None)
+    except TelegramBadRequest:
+        pass
+    await callback.answer()
+    await _ask_product_photo(callback.message, state)
+
+
+async def _ask_product_photo(message: Message, state: FSMContext):
+    colors = (await state.get_data()).get("colors", [])
+    if colors:
+        await message.answer("✅ Ranglar: " + escape(", ".join(color_mod.label(c, "uz") for c in colors)))
     await state.set_state(AddProduct.photo)
     await message.answer("📸 Mahsulot rasmini yuboring:", reply_markup=kb.skip_cancel_kb(DEFAULT_LANG))
 
@@ -544,12 +611,15 @@ async def add_product_video(message: Message, state: FSMContext, lang: str):
     await db.add_product(
         data["category_id"], data["name"], data["description"], data["price"], photo_id, sizes,
         data.get("name_i18n"), data.get("description_i18n"), video_id, video_size,
+        color_mod.dump(data.get("colors") or []),
     )
     info = f"✅ Mahsulot qo'shildi: <b>{escape(data['name'])}</b> — {fmt_price(data['price'])}"
     if video_id:
         info += "\n🎬 Video qo'shildi" + (VIDEO_TOO_BIG if video_size and video_size > MAX_WEB_MEDIA_BYTES else "")
     if sizes:
         info += f"\n📏 O'lchamlar: {escape(', '.join(sizes))}"
+    if data.get("colors"):
+        info += f"\n🎨 Ranglar: {escape(', '.join(color_mod.name(c, 'uz') for c in data['colors']))}"
     if data.get("name_i18n"):
         info += "\n🌐 Tarjimalar saqlandi"
     await back_to_panel(message, lang, info)
@@ -593,14 +663,15 @@ async def cb_media_product(callback: CallbackQuery, state: FSMContext):
         return
     await state.set_state(EditMedia.wait)
     await state.update_data(media_product_id=product["id"])
-    markup = None
+    buttons = [[kb.InlineKeyboardButton(text="🎨 Ranglarni o'zgartirish", callback_data=f"ecs:{product['id']}")]]
     if product.get("video_id"):
-        markup = kb.InlineKeyboardMarkup(inline_keyboard=[[
-            kb.InlineKeyboardButton(text="🗑 Videoni o'chirish", callback_data=f"mdelv:{product['id']}")
-        ]])
+        buttons.append([kb.InlineKeyboardButton(text="🗑 Videoni o'chirish", callback_data=f"mdelv:{product['id']}")])
+    markup = kb.InlineKeyboardMarkup(inline_keyboard=buttons)
+    product_colors = color_mod.product_colors(product)
     await callback.message.answer(
         f"<b>{escape(product['name'])}</b>\n\n"
-        f"🖼 Rasm: {HAS if product['photo_id'] else HAS_NOT}\n🎬 Video: {HAS if product.get('video_id') else HAS_NOT}\n\n"
+        f"🖼 Rasm: {HAS if product['photo_id'] else HAS_NOT}\n🎬 Video: {HAS if product.get('video_id') else HAS_NOT}\n"
+        f"🎨 Ranglar: {escape(', '.join(color_mod.name(c, 'uz') for c in product_colors)) or HAS_NOT}\n\n"
         "Yangi <b>rasm</b> yoki <b>video</b> yuboring — eskisining o'rniga qo'yiladi.",
         reply_markup=markup,
     )
@@ -628,6 +699,58 @@ async def media_upload(message: Message, state: FSMContext, lang: str):
 @router.message(EditMedia.wait)
 async def media_upload_invalid(message: Message):
     await message.answer("Iltimos, rasm yoki video yuboring (yoki «❌ Bekor qilish»).")
+
+
+# ---------------- Mavjud mahsulot ranglarini o'zgartirish ----------------
+@router.callback_query(F.data.startswith("ecs:"))
+async def cb_edit_colors(callback: CallbackQuery, state: FSMContext):
+    product = await db.get_product(int(callback.data.split(":")[1]))
+    if not product:
+        await callback.answer("Mahsulot topilmadi", show_alert=True)
+        return
+    colors = color_mod.product_colors(product)
+    await state.set_state(EditColors.wait)
+    await state.update_data(edit_product_id=product["id"], colors=colors)
+    await callback.message.answer(COLORS_HELP.replace("Rang kerak bo'lmasa — «O'tkazib yuborish».",
+                                                      "Hamma ranglarni olib tashlab «✔️ Tayyor» bossangiz — rang tanlash o'chadi."),
+                                  reply_markup=kb.cancel_kb(DEFAULT_LANG))
+    await callback.message.answer("🎨 Ranglar:", reply_markup=kb.colors_select_kb(colors, "ec"))
+    await callback.answer()
+
+
+@router.callback_query(EditColors.wait, F.data.startswith("ec:") | F.data.startswith("ecx:"))
+async def cb_edit_colors_toggle(callback: CallbackQuery, state: FSMContext):
+    colors = _toggle_color((await state.get_data()).get("colors", []), callback.data)
+    await state.update_data(colors=colors)
+    try:
+        await callback.message.edit_reply_markup(reply_markup=kb.colors_select_kb(colors, "ec"))
+    except TelegramBadRequest:
+        pass
+    await callback.answer()
+
+
+@router.message(EditColors.wait, F.text)
+async def edit_colors_text(message: Message, state: FSMContext):
+    colors = (await state.get_data()).get("colors", [])
+    for custom in color_mod.parse_custom(message.text):
+        if custom not in colors and len(colors) < color_mod.MAX_COLORS:
+            colors.append(custom)
+    await state.update_data(colors=colors)
+    await message.answer("🎨 Ranglar:", reply_markup=kb.colors_select_kb(colors, "ec"))
+
+
+@router.callback_query(EditColors.wait, F.data == "ec_done")
+async def cb_edit_colors_done(callback: CallbackQuery, state: FSMContext, lang: str):
+    data = await state.get_data()
+    await state.clear()
+    await db.set_product_colors(data["edit_product_id"], color_mod.dump(data.get("colors") or []))
+    try:
+        await callback.message.edit_reply_markup(reply_markup=None)
+    except TelegramBadRequest:
+        pass
+    await callback.answer()
+    names = ", ".join(color_mod.name(c, "uz") for c in data.get("colors") or []) or "yo'q"
+    await back_to_panel(callback.message, lang, f"✅ Ranglar saqlandi: {escape(names)}")
 
 
 @router.callback_query(F.data.startswith("mdelv:"))

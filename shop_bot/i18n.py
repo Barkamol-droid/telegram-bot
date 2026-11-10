@@ -108,6 +108,17 @@ TEXTS: dict[str, dict[str, str]] = {
     },
     "size_selected": {"uz": "O'lcham: {size}", "ru": "Размер: {size}", "tg": "Андоза: {size}", "kk": "Өлшем: {size}"},
     "size_label": {"uz": " (o'lcham: {size})", "ru": " (размер: {size})", "tg": " (андоза: {size})", "kk": " (өлшем: {size})"},
+    "colors": {"uz": "🎨 Ranglar", "ru": "🎨 Цвета", "tg": "🎨 Рангҳо", "kk": "🎨 Түстер"},
+    "choose_color_hint": {
+        "uz": "👇 Rangni tanlang", "ru": "👇 Выберите цвет", "tg": "👇 Рангро интихоб кунед", "kk": "👇 Түсін таңдаңыз",
+    },
+    "choose_color_first": {
+        "uz": "🎨 Avval rangni tanlang!", "ru": "🎨 Сначала выберите цвет!",
+        "tg": "🎨 Аввал рангро интихоб кунед!", "kk": "🎨 Алдымен түсін таңдаңыз!",
+    },
+    "color_selected": {"uz": "Rang: {color}", "ru": "Цвет: {color}", "tg": "Ранг: {color}", "kk": "Түсі: {color}"},
+    "variant_size": {"uz": "o'lcham: {v}", "ru": "размер: {v}", "tg": "андоза: {v}", "kk": "өлшем: {v}"},
+    "variant_color": {"uz": "rang: {v}", "ru": "цвет: {v}", "tg": "ранг: {v}", "kk": "түсі: {v}"},
     "choose_size_first": {
         "uz": "📏 Avval o'lchamni tanlang!", "ru": "📏 Сначала выберите размер!",
         "tg": "📏 Аввал андозаро интихоб кунед!", "kk": "📏 Алдымен өлшемді таңдаңыз!",
@@ -553,6 +564,7 @@ WEB_TEXTS: dict[str, dict[str, str]] = {
     "video": {"uz": "Video", "ru": "Видео", "tg": "Видео", "kk": "Бейне"},
     "description": {"uz": "Tavsif", "ru": "Описание", "tg": "Тавсиф", "kk": "Сипаттама"},
     "size": {"uz": "O'lcham", "ru": "Размер", "tg": "Андоза", "kk": "Өлшем"},
+    "color": {"uz": "Rang", "ru": "Цвет", "tg": "Ранг", "kk": "Түсі"},
     "quantity": {"uz": "Miqdor", "ru": "Количество", "tg": "Миқдор", "kk": "Саны"},
     "open_in_telegram": {
         "uz": "Bu sahifani Telegram'dagi @{bot} bot orqali oching.", "ru": "Откройте эту страницу через бота @{bot} в Telegram.",

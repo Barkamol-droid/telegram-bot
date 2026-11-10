@@ -95,7 +95,14 @@
   .sizes { display: flex; flex-wrap: wrap; gap: 8px; }
   .size { min-width: 52px; padding: 10px 12px; border-radius: 12px; background: var(--bg2); font-weight: 600; text-align: center; }
   .size.active { background: var(--btn); color: var(--btn-text); }
-  .size.shake { animation: shake .3s; }
+  .size.shake, .swatch.shake { animation: shake .3s; }
+  .swatches { display: flex; flex-wrap: wrap; gap: 10px; }
+  .swatch { display: flex; align-items: center; gap: 8px; padding: 8px 12px 8px 8px; border-radius: 22px; background: var(--bg2);
+    border: 2px solid transparent; font-weight: 600; font-size: 14px; }
+  .swatch .dot { width: 24px; height: 24px; border-radius: 50%; flex: none; box-shadow: inset 0 0 0 1px rgba(0,0,0,.15); }
+  .swatch.active { border-color: var(--btn); }
+  .swatch-dots { position: absolute; bottom: 8px; left: 8px; display: flex; gap: 3px; }
+  .swatch-dots i { width: 12px; height: 12px; border-radius: 50%; box-shadow: 0 0 0 1.5px #fff; }
   @keyframes shake { 25% { transform: translateX(-4px); } 75% { transform: translateX(4px); } }
   .stepper { display: inline-flex; align-items: center; background: var(--bg2); border-radius: 12px; }
   .stepper button { width: 40px; height: 40px; font-size: 20px; font-weight: 600; }
@@ -161,7 +168,8 @@
 
 <script>
 const tg = window.Telegram && window.Telegram.WebApp;
-const S = { data: null, cat: 0, query: "", stack: [], useBonus: false, product: null, size: "", qty: 1, cart: null };
+const S = { data: null, cat: 0, query: "", stack: [], useBonus: false, product: null, size: "", color: "", qty: 1, cart: null };
+const dotStyle = (c) => c.hex ? `background:${c.hex}` : "background:conic-gradient(#e57373,#ffd54f,#81c784,#64b5f6,#ba68c8,#e57373)";
 const $ = (sel, root = document) => root.querySelector(sel);
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const T = (k, vars = {}) => (S.data?.texts[k] || k).replace(/\{(\w+)\}/g, (_, v) => vars[v] ?? "");
@@ -207,7 +215,8 @@ setInterval(() => document.querySelectorAll("[data-timer]").forEach((el) => (el.
 function productCard(p) {
   const img = p.photo ? `<img loading="lazy" src="${p.photo}" alt="">` : (p.video ? "🎬" : "💎");
   return `<button class="card" data-id="${p.id}">
-    <div class="thumb">${img}${p.percent ? `<span class="tag">-${p.percent}%</span>` : ""}${p.video ? `<span class="tag video">▶ ${esc(T("video"))}</span>` : ""}</div>
+    <div class="thumb">${img}${p.percent ? `<span class="tag">-${p.percent}%</span>` : ""}${p.video ? `<span class="tag video">▶ ${esc(T("video"))}</span>` : ""}
+      ${p.colors.length ? `<span class="swatch-dots">${p.colors.slice(0, 5).map((c) => `<i style="${dotStyle(c)}"></i>`).join("")}</span>` : ""}</div>
     <div class="info"><div class="name">${esc(p.name)}</div>
       <div><div class="price">${money(p.price)}</div>${p.old_price ? `<div class="old">${money(p.old_price)}</div>` : ""}</div></div>
   </button>`;
@@ -286,7 +295,7 @@ async function onMainButton() {
 // ---------------- Mahsulot ----------------
 function openProduct(id) {
   const p = S.data.products.find((x) => x.id === id); if (!p) return;
-  S.product = p; S.size = ""; S.qty = 1; haptic();
+  S.product = p; S.size = ""; S.color = p.colors.length === 1 ? p.colors[0].key : ""; S.qty = 1; haptic();
   const tabs = p.photo && p.video ? `<div class="tabs"><button class="active" data-media="photo">${esc(T("photo"))}</button>
     <button data-media="video">▶ ${esc(T("video"))}</button></div>` : "";
   const media = p.photo ? `<img src="${p.photo}" alt="">`
@@ -298,6 +307,8 @@ function openProduct(id) {
       <div class="price-line"><span class="big-price nowrap">${money(p.price)}</span>${p.old_price ? `<span class="old" style="font-size:15px">${money(p.old_price)}</span><span class="discount-pill" style="margin:0">-${p.percent}%</span>` : ""}</div>
       ${p.percent && S.data.promo ? `<div class="ends" data-timer>${esc(promoTimerText())}</div>` : ""}
     </div>
+    ${p.colors.length ? `<div class="panel"><h4>${esc(T("color"))}</h4><div class="swatches">${p.colors.map((c) =>
+      `<button class="swatch ${S.color === c.key ? "active" : ""}" data-color="${esc(c.key)}"><span class="dot" style="${dotStyle(c)}"></span>${esc(c.name)}</button>`).join("")}</div></div>` : ""}
     ${p.sizes.length ? `<div class="panel"><h4>${esc(T("size"))}</h4><div class="sizes">${p.sizes.map((s) =>
       `<button class="size" data-size="${esc(s)}">${esc(s)}</button>`).join("")}</div></div>` : ""}
     <div class="panel" style="display:flex;align-items:center;justify-content:space-between">
@@ -313,6 +324,10 @@ function openProduct(id) {
       ? `<video src="${p.video}" controls autoplay playsinline loop></video>` : `<img src="${p.photo}" alt="">`);
     box.appendChild(tabsEl); haptic();
   });
+  el.querySelectorAll("[data-color]").forEach((b) => b.onclick = () => {
+    S.color = b.dataset.color; haptic();
+    el.querySelectorAll("[data-color]").forEach((x) => x.classList.toggle("active", x === b));
+  });
   el.querySelectorAll("[data-size]").forEach((b) => b.onclick = () => {
     S.size = b.dataset.size; haptic();
     el.querySelectorAll("[data-size]").forEach((x) => x.classList.toggle("active", x === b));
@@ -324,15 +339,21 @@ function openProduct(id) {
 
 async function addToCart() {
   const p = S.product;
+  if (p.colors.length && !S.color) {
+    haptic("error"); toast(T("choose_color_first"));
+    document.querySelectorAll(".swatch").forEach((x) => { x.classList.remove("shake"); void x.offsetWidth; x.classList.add("shake"); });
+    return;
+  }
   if (p.sizes.length && !S.size) {
     haptic("error"); toast(T("choose_size_first"));
     document.querySelectorAll(".size").forEach((x) => { x.classList.remove("shake"); void x.offsetWidth; x.classList.add("shake"); });
     return;
   }
-  const existing = S.cart.items.find((i) => i.product_id === p.id && i.size === (p.sizes.length ? S.size : ""));
+  const color = p.colors.length ? S.color : "";
+  const existing = S.cart.items.find((i) => i.product_id === p.id && i.size === (p.sizes.length ? S.size : "") && i.color === color);
   tg.MainButton.showProgress();
   try {
-    S.cart = await api("/api/cart", { product_id: p.id, size: S.size, qty: (existing?.qty || 0) + S.qty });
+    S.cart = await api("/api/cart", { product_id: p.id, size: S.size, color, qty: (existing?.qty || 0) + S.qty });
     haptic("success"); toast(T("added")); popScreen();
   } catch (e) { haptic("error"); toast(T("error")); }
   finally { tg.MainButton.hideProgress(); syncButtons(); }
@@ -352,13 +373,14 @@ function cartHtml() {
   if (!c.items.length) return `<div class="empty"><div class="big">🛒</div>${esc(T("cart_empty"))}
     <button class="btn secondary" id="toShop" style="max-width:260px;margin:16px auto 0">${esc(T("continue_shopping"))}</button></div>`;
   const photo = (id) => S.data.products.find((p) => p.id === id)?.photo;
-  return `<div class="panel"><h4>${esc(T("cart"))}</h4>${c.items.map((i) => `
+  return `<div class="panel"><h4>${esc(T("cart"))}</h4>${c.items.map((i, n) => `
       <div class="line"><div class="mini">${photo(i.product_id) ? `<img src="${photo(i.product_id)}" alt="">` : "💎"}</div>
         <div class="grow"><div class="title">${esc(i.name)}</div>
+          ${i.color ? `<div class="sub">${esc(T("color"))}: ${esc(i.color_name)}</div>` : ""}
           ${i.size ? `<div class="sub">${esc(T("size"))}: ${esc(i.size)}</div>` : ""}
           <div class="sub"><span class="nowrap">${money(i.price)}</span>${i.old_price ? ` <s class="nowrap">${money(i.old_price)}</s>` : ""}</div></div>
-        <div class="stepper"><button data-pid="${i.product_id}" data-size="${esc(i.size)}" data-d="-1">−</button><span>${i.qty}</span>
-          <button data-pid="${i.product_id}" data-size="${esc(i.size)}" data-d="1">+</button></div></div>`).join("")}</div>
+        <div class="stepper"><button data-idx="${n}" data-d="-1">−</button><span>${i.qty}</span>
+          <button data-idx="${n}" data-d="1">+</button></div></div>`).join("")}</div>
     ${c.max_usable ? `<div class="panel"><div class="bonus-box"><div style="font-size:26px">💎</div>
         <div class="grow"><b>${esc(T("your_bonus"))}: ${c.balance}</b><div class="sub">${esc(T("use_bonus", { n: c.max_usable, value: money(c.max_usable * S.data.bonus.value) }))}</div></div>
         <label class="switch"><input type="checkbox" id="useBonus" ${S.useBonus ? "checked" : ""}><span></span></label></div></div>` : ""}
@@ -366,10 +388,10 @@ function cartHtml() {
 }
 
 function bindCart(el) {
-  el.querySelectorAll("[data-pid]").forEach((b) => b.onclick = async () => {
-    const item = S.cart.items.find((i) => i.product_id === +b.dataset.pid && i.size === b.dataset.size);
+  el.querySelectorAll("[data-idx]").forEach((b) => b.onclick = async () => {
+    const item = S.cart.items[+b.dataset.idx];
     haptic();
-    try { S.cart = await api("/api/cart", { product_id: item.product_id, size: item.size, qty: item.qty + +b.dataset.d, use_bonus: S.useBonus }); }
+    try { S.cart = await api("/api/cart", { product_id: item.product_id, size: item.size, color: item.color, qty: item.qty + +b.dataset.d, use_bonus: S.useBonus }); }
     catch (e) { toast(T("error")); }
     refreshCart(el);
   });
