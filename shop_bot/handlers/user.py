@@ -1,4 +1,4 @@
-"""Mijozlar uchun handlerlar: katalog, savat, buyurtma berish."""
+"""Mijozlar uchun handlerlar: katalog, aksiya, savat, buyurtma berish (4 tilda)."""
 import logging
 from html import escape
 
@@ -9,8 +9,9 @@ from aiogram.types import CallbackQuery, InlineKeyboardMarkup, Message
 
 import db
 import keyboards as kb
-from config import ABOUT_TEXT, ADMIN_IDS, CONTACT_TEXT, fmt_price, is_admin
+from config import ADMIN_IDS, SHOP_NAME, _env_text, is_admin
 from db import product_sizes
+from i18n import all_texts, loc, t
 from states import OrderForm
 
 router = Router()
@@ -35,50 +36,71 @@ async def show(callback: CallbackQuery, text: str, markup: InlineKeyboardMarkup 
     await callback.answer()
 
 
-# ---------------- Katalog ----------------
-@router.message(F.text == kb.BTN_CATALOG)
-async def catalog(message: Message):
+async def promo_with_banner(lang: str) -> tuple[dict | None, str]:
+    promo = await db.get_promo()
+    category = await db.get_category(promo["category_id"]) if promo and promo.get("category_id") else None
+    return promo, kb.promo_banner(promo, lang, category)
+
+
+async def categories_view(lang: str) -> tuple[str, InlineKeyboardMarkup | None]:
     categories = await db.get_categories()
     if not categories:
-        await message.answer("Hozircha mahsulotlar mavjud emas. Keyinroq urinib ko'ring 🙂")
-        return
-    await message.answer("📂 Kategoriyani tanlang:", reply_markup=kb.categories_kb(categories))
+        return t("no_products", lang), None
+    _, banner = await promo_with_banner(lang)
+    text = t("choose_category", lang)
+    if banner:
+        text = f"{banner}\n\n{text}"
+    return text, kb.categories_kb(categories, lang)
+
+
+# ---------------- Katalog ----------------
+@router.message(F.text.in_(all_texts("btn_catalog")))
+async def catalog(message: Message, lang: str):
+    text, markup = await categories_view(lang)
+    await message.answer(text, reply_markup=markup)
 
 
 @router.callback_query(F.data == "cats")
-async def cb_categories(callback: CallbackQuery):
-    categories = await db.get_categories()
-    if not categories:
-        await show(callback, "Hozircha mahsulotlar mavjud emas.")
-        return
-    await show(callback, "📂 Kategoriyani tanlang:", kb.categories_kb(categories))
+async def cb_categories(callback: CallbackQuery, lang: str):
+    text, markup = await categories_view(lang)
+    await show(callback, text, markup)
+
+
+@router.callback_query(F.data == "shop")
+async def cb_shop(callback: CallbackQuery, lang: str):
+    """E'lon/banner ostidagi «Xarid qilish» tugmasi — e'lonni o'chirmasdan katalogni yangi xabarda ochadi."""
+    text, markup = await categories_view(lang)
+    await callback.message.answer(text, reply_markup=markup)
+    await callback.answer()
 
 
 @router.callback_query(F.data.startswith("cat:"))
-async def cb_category(callback: CallbackQuery):
+async def cb_category(callback: CallbackQuery, lang: str):
     category_id = int(callback.data.split(":")[1])
     category = await db.get_category(category_id)
     if not category:
-        await callback.answer("Kategoriya topilmadi", show_alert=True)
+        await callback.answer(t("not_found_category", lang), show_alert=True)
         return
+    promo = await db.get_promo()
     products = await db.get_products(category_id)
+    title = f"<b>{escape(loc(category, 'name', lang))}</b>\n\n"
     if not products:
-        await show(callback, f"<b>{escape(category['name'])}</b>\n\nBu kategoriyada hozircha mahsulot yo'q.",
-                   kb.products_kb([]))
+        await show(callback, title + t("category_empty", lang), kb.products_kb([], lang, promo))
         return
-    await show(callback, f"<b>{escape(category['name'])}</b>\n\nMahsulotni tanlang:", kb.products_kb(products))
+    await show(callback, title + t("choose_product", lang), kb.products_kb(products, lang, promo))
 
 
 @router.callback_query(F.data.startswith("prod:"))
-async def cb_product(callback: CallbackQuery):
+async def cb_product(callback: CallbackQuery, lang: str):
     product_id = int(callback.data.split(":")[1])
     product = await db.get_product(product_id)
     if not product:
-        await callback.answer("Mahsulot topilmadi", show_alert=True)
+        await callback.answer(t("not_found_product", lang), show_alert=True)
         return
+    promo = await db.get_promo()
     sizes = product_sizes(product)
-    text = kb.product_text(product, sizes)
-    markup = kb.product_kb(product["id"], product["category_id"], sizes=sizes)
+    text = kb.product_text(product, lang, promo, sizes)
+    markup = kb.product_kb(product["id"], product["category_id"], lang, sizes=sizes)
     if product["photo_id"]:
         try:
             await callback.message.delete()
@@ -90,233 +112,243 @@ async def cb_product(callback: CallbackQuery):
         await show(callback, text, markup)
 
 
-async def _update_card(callback: CallbackQuery, product_id: int, qty: int, size: str):
+async def _update_card(callback: CallbackQuery, lang: str, product_id: int, qty: int, size: str):
     if qty < 1 or qty > 99:
-        await callback.answer("Miqdor 1 dan 99 gacha bo'lishi kerak")
+        await callback.answer(t("qty_range", lang))
         return
     product = await db.get_product(product_id)
     if not product:
-        await callback.answer("Mahsulot topilmadi", show_alert=True)
+        await callback.answer(t("not_found_product", lang), show_alert=True)
         return
     sizes = product_sizes(product)
     if size and size not in sizes:
         size = ""
     try:
         await callback.message.edit_reply_markup(
-            reply_markup=kb.product_kb(product_id, product["category_id"], qty, sizes, size)
+            reply_markup=kb.product_kb(product_id, product["category_id"], lang, qty, sizes, size)
         )
     except TelegramBadRequest:
         pass
-    await callback.answer(f"O'lcham: {size}" if size else None)
+    await callback.answer(t("size_selected", lang, size=size) if size else None)
 
 
 @router.callback_query(F.data.startswith("qty:"))
-async def cb_qty(callback: CallbackQuery):
+async def cb_qty(callback: CallbackQuery, lang: str):
     parts = callback.data.split(":")
     size = parts[3] if len(parts) > 3 else ""
-    await _update_card(callback, int(parts[1]), int(parts[2]), size)
+    await _update_card(callback, lang, int(parts[1]), int(parts[2]), size)
 
 
 @router.callback_query(F.data.startswith("sz:"))
-async def cb_size(callback: CallbackQuery):
+async def cb_size(callback: CallbackQuery, lang: str):
     _, product_id, size, qty = callback.data.split(":")
-    await _update_card(callback, int(product_id), int(qty), size)
+    await _update_card(callback, lang, int(product_id), int(qty), size)
 
 
 @router.callback_query(F.data.startswith("add:"))
-async def cb_add_to_cart(callback: CallbackQuery):
+async def cb_add_to_cart(callback: CallbackQuery, lang: str):
     parts = callback.data.split(":")
     product_id, qty = int(parts[1]), int(parts[2])
     size = parts[3] if len(parts) > 3 else ""
     product = await db.get_product(product_id)
     if not product:
-        await callback.answer("Mahsulot topilmadi", show_alert=True)
+        await callback.answer(t("not_found_product", lang), show_alert=True)
         return
     sizes = product_sizes(product)
     if sizes and size not in sizes:
-        await callback.answer("📏 Avval o'lchamni tanlang!", show_alert=True)
+        await callback.answer(t("choose_size_first", lang), show_alert=True)
         return
     if not sizes:
         size = ""
     await db.cart_add(callback.from_user.id, product["id"], qty, size)
-    size_info = f", o'lcham {size}" if size else ""
-    await callback.answer(f"✅ {product['name']} ({qty} dona{size_info}) savatga qo'shildi!", show_alert=True)
+    await callback.answer(
+        t("added", lang, name=loc(product, "name", lang), size=kb.size_label(size, lang), qty=qty),
+        show_alert=True,
+    )
+
+
+# ---------------- Aksiya ----------------
+@router.message(F.text.in_(all_texts("btn_promo")))
+async def promo_info(message: Message, lang: str):
+    _, banner = await promo_with_banner(lang)
+    if banner:
+        await message.answer(banner + f"\n\n{t('promo_footer', lang)}", reply_markup=kb.shop_now_kb(lang))
+    else:
+        await message.answer(t("no_promo", lang), reply_markup=kb.channel_kb(lang))
 
 
 # ---------------- Savat ----------------
-async def _cart_view(user_id: int):
+async def _cart_view(user_id: int, lang: str):
     items = await db.cart_get(user_id)
     if not items:
-        return "🛒 Savatingiz bo'sh.", None
-    return kb.cart_text(items), kb.cart_kb(items)
+        return t("cart_empty", lang), None
+    return kb.cart_text(items, lang), kb.cart_kb(items, lang)
 
 
-@router.message(F.text == kb.BTN_CART)
-async def cart(message: Message):
-    text, markup = await _cart_view(message.from_user.id)
+@router.message(F.text.in_(all_texts("btn_cart")))
+async def cart(message: Message, lang: str):
+    text, markup = await _cart_view(message.from_user.id, lang)
     await message.answer(text, reply_markup=markup)
 
 
 @router.callback_query(F.data == "cart")
-async def cb_cart(callback: CallbackQuery):
-    text, markup = await _cart_view(callback.from_user.id)
+async def cb_cart(callback: CallbackQuery, lang: str):
+    text, markup = await _cart_view(callback.from_user.id, lang)
     await show(callback, text, markup)
 
 
 @router.callback_query(F.data.startswith("cart_del:"))
-async def cb_cart_del(callback: CallbackQuery):
+async def cb_cart_del(callback: CallbackQuery, lang: str):
     parts = callback.data.split(":")
     size = parts[2] if len(parts) > 2 else ""
     await db.cart_remove(callback.from_user.id, int(parts[1]), size)
-    text, markup = await _cart_view(callback.from_user.id)
+    text, markup = await _cart_view(callback.from_user.id, lang)
     await show(callback, text, markup)
 
 
 @router.callback_query(F.data == "cart_clear")
-async def cb_cart_clear(callback: CallbackQuery):
+async def cb_cart_clear(callback: CallbackQuery, lang: str):
     await db.cart_clear(callback.from_user.id)
-    await show(callback, "🛒 Savatingiz tozalandi.")
+    await show(callback, t("cart_cleared", lang))
 
 
 # ---------------- Buyurtma berish ----------------
 @router.callback_query(F.data == "checkout")
-async def cb_checkout(callback: CallbackQuery, state: FSMContext):
+async def cb_checkout(callback: CallbackQuery, state: FSMContext, lang: str):
     if not await db.cart_get(callback.from_user.id):
-        await callback.answer("Savatingiz bo'sh", show_alert=True)
+        await callback.answer(t("cart_empty", lang), show_alert=True)
         return
     await state.set_state(OrderForm.name)
-    await callback.message.answer("👤 Ismingizni kiriting:", reply_markup=kb.cancel_kb())
+    await callback.message.answer(t("ask_name", lang), reply_markup=kb.cancel_kb(lang))
     await callback.answer()
 
 
 @router.message(OrderForm.name, F.text)
-async def order_name(message: Message, state: FSMContext):
+async def order_name(message: Message, state: FSMContext, lang: str):
     name = message.text.strip()
     if len(name) < 2 or len(name) > 64:
-        await message.answer("Iltimos, ismingizni to'g'ri kiriting (2-64 belgi).")
+        await message.answer(t("bad_name", lang))
         return
     await state.update_data(full_name=name)
     await state.set_state(OrderForm.phone)
-    await message.answer(
-        "📞 Telefon raqamingizni yuboring (tugmani bosing yoki +998901234567 ko'rinishida yozing):",
-        reply_markup=kb.phone_kb(),
-    )
+    await message.answer(t("ask_phone", lang), reply_markup=kb.phone_kb(lang))
 
 
 @router.message(OrderForm.phone, F.contact)
-async def order_phone_contact(message: Message, state: FSMContext):
+async def order_phone_contact(message: Message, state: FSMContext, lang: str):
     if message.contact.user_id and message.contact.user_id != message.from_user.id:
-        await message.answer("Iltimos, o'zingizning raqamingizni yuboring.")
+        await message.answer(t("own_phone", lang))
         return
-    await _set_phone(message, state, message.contact.phone_number)
+    await _set_phone(message, state, lang, message.contact.phone_number)
 
 
 @router.message(OrderForm.phone, F.text)
-async def order_phone_text(message: Message, state: FSMContext):
+async def order_phone_text(message: Message, state: FSMContext, lang: str):
     digits = "".join(ch for ch in message.text if ch.isdigit())
     if not 9 <= len(digits) <= 15:
-        await message.answer("Telefon raqam noto'g'ri. Masalan: +998901234567")
+        await message.answer(t("bad_phone", lang))
         return
-    await _set_phone(message, state, message.text.strip())
+    await _set_phone(message, state, lang, message.text.strip())
 
 
-async def _set_phone(message: Message, state: FSMContext, phone: str):
+async def _set_phone(message: Message, state: FSMContext, lang: str, phone: str):
     if not phone.startswith("+"):
         phone = "+" + phone
     await state.update_data(phone=phone)
     await state.set_state(OrderForm.address)
-    await message.answer(
-        "📍 Yetkazib berish manzilini yozing yoki joylashuvni yuboring:",
-        reply_markup=kb.location_kb(),
-    )
+    await message.answer(t("ask_address", lang), reply_markup=kb.location_kb(lang))
 
 
 @router.message(OrderForm.address, F.location)
-async def order_address_location(message: Message, state: FSMContext):
-    await state.update_data(
-        address=None, latitude=message.location.latitude, longitude=message.location.longitude
-    )
-    await _ask_comment(message, state)
+async def order_address_location(message: Message, state: FSMContext, lang: str):
+    await state.update_data(address=None, latitude=message.location.latitude, longitude=message.location.longitude)
+    await _ask_comment(message, state, lang)
 
 
 @router.message(OrderForm.address, F.text)
-async def order_address_text(message: Message, state: FSMContext):
+async def order_address_text(message: Message, state: FSMContext, lang: str):
     address = message.text.strip()
     if len(address) < 5:
-        await message.answer("Manzilni batafsilroq yozing.")
+        await message.answer(t("address_short", lang))
         return
     await state.update_data(address=address, latitude=None, longitude=None)
-    await _ask_comment(message, state)
+    await _ask_comment(message, state, lang)
 
 
-async def _ask_comment(message: Message, state: FSMContext):
+async def _ask_comment(message: Message, state: FSMContext, lang: str):
     await state.set_state(OrderForm.comment)
-    await message.answer(
-        "💬 Qo'shimcha izoh qoldiring (masalan: sovg'a uchun qadoqlash, otkritkaga yozuv, "
-        "qulay vaqt) yoki «O'tkazib yuborish» tugmasini bosing:",
-        reply_markup=kb.skip_cancel_kb(),
-    )
+    await message.answer(t("ask_comment", lang, skip=t("btn_skip", lang)), reply_markup=kb.skip_cancel_kb(lang))
 
 
 @router.message(OrderForm.comment, F.text)
-async def order_comment(message: Message, state: FSMContext):
-    comment = None if message.text == kb.BTN_SKIP else message.text.strip()[:500]
+async def order_comment(message: Message, state: FSMContext, lang: str):
+    comment = None if message.text in all_texts("btn_skip") else message.text.strip()[:500]
     await state.update_data(comment=comment)
-    await _ask_confirm(message, state)
+    await message.answer(t("data_received", lang), reply_markup=kb.main_menu(lang, is_admin(message.from_user.id)))
+    await _ask_confirm(message, state, lang, message.from_user.id)
 
 
-async def _ask_confirm(message: Message, state: FSMContext):
+async def _ask_confirm(message: Message, state: FSMContext, lang: str, user_id: int, notice: str = ""):
     data = await state.get_data()
-    items = await db.cart_get(message.from_user.id)
+    items = await db.cart_get(user_id)
     if not items:
         await state.clear()
-        await message.answer("Savatingiz bo'sh.", reply_markup=kb.main_menu(is_admin(message.from_user.id)))
+        await message.answer(t("cart_empty", lang), reply_markup=kb.main_menu(lang, is_admin(user_id)))
         return
+    total = sum(i["subtotal"] for i in items)
+    await state.update_data(expected_total=total)
     await state.set_state(OrderForm.confirm)
-    address = escape(data["address"]) if data.get("address") else "Joylashuv yuborilgan"
+    address = escape(data["address"]) if data.get("address") else t("location_sent", lang)
     text = (
-        kb.cart_text(items)
+        (f"{notice}\n\n" if notice else "")
+        + kb.cart_text(items, lang)
         + f"\n\n👤 {escape(data['full_name'])}\n📞 {escape(data['phone'])}\n📍 {address}"
         + (f"\n💬 {escape(data['comment'])}" if data.get("comment") else "")
-        + "\n\nBuyurtmani tasdiqlaysizmi?"
+        + f"\n\n{t('confirm_q', lang)}"
     )
-    await message.answer("Ma'lumotlar qabul qilindi ✅", reply_markup=kb.main_menu(is_admin(message.from_user.id)))
-    await message.answer(text, reply_markup=kb.confirm_kb())
+    await message.answer(text, reply_markup=kb.confirm_kb(lang))
 
 
 @router.callback_query(OrderForm.confirm, F.data == "order_cancel")
-async def cb_order_cancel(callback: CallbackQuery, state: FSMContext):
+async def cb_order_cancel(callback: CallbackQuery, state: FSMContext, lang: str):
     await state.clear()
-    await show(callback, "Buyurtma bekor qilindi. Mahsulotlar savatingizda qoldi.")
+    await show(callback, t("order_cancelled", lang))
 
 
 @router.callback_query(OrderForm.confirm, F.data == "order_confirm")
-async def cb_order_confirm(callback: CallbackQuery, state: FSMContext, bot: Bot):
+async def cb_order_confirm(callback: CallbackQuery, state: FSMContext, bot: Bot, lang: str):
     data = await state.get_data()
+    user_id = callback.from_user.id
+
+    # Tasdiqlash oynasi ochilgandan beri narx o'zgargan bo'lsa (masalan, aksiya tugagan) — qayta so'raymiz
+    items = await db.cart_get(user_id)
+    if items and sum(i["subtotal"] for i in items) != data.get("expected_total"):
+        try:
+            await callback.message.edit_reply_markup(reply_markup=None)
+        except TelegramBadRequest:
+            pass
+        await callback.answer()
+        await _ask_confirm(callback.message, state, lang, user_id, notice=t("prices_changed", lang))
+        return
+
     await state.clear()
     order_id = await db.create_order(
-        callback.from_user.id,
-        data["full_name"],
-        data["phone"],
-        data.get("address"),
-        data.get("latitude"),
-        data.get("longitude"),
-        data.get("comment"),
+        user_id, data["full_name"], data["phone"], data.get("address"),
+        data.get("latitude"), data.get("longitude"), data.get("comment"), lang,
     )
     if not order_id:
-        await show(callback, "Savatingiz bo'sh.")
+        await show(callback, t("cart_empty", lang))
         return
 
     order = await db.get_order(order_id)
     items = await db.get_order_items(order_id)
     await show(
         callback,
-        f"✅ Buyurtmangiz qabul qilindi!\n\n{kb.order_text(order, items)}\n\n"
-        "Tez orada operatorimiz siz bilan bog'lanadi. Xaridingiz uchun rahmat! 💎",
+        f"{t('order_accepted', lang)}\n\n{kb.order_text(order, items, lang)}\n\n{t('order_thanks', lang)}",
     )
 
-    # Adminlarga xabar
-    admin_text = "🔔 <b>Yangi buyurtma!</b>\n\n" + kb.order_text(order, items, for_admin=True)
+    # Adminlarga xabar (o'zbek tilida)
+    admin_text = "🔔 <b>Yangi buyurtma!</b>\n\n" + kb.order_text(order, items, "uz", for_admin=True)
     for admin_id in ADMIN_IDS:
         try:
             await bot.send_message(admin_id, admin_text, reply_markup=kb.admin_order_kb(order_id))
@@ -327,47 +359,43 @@ async def cb_order_confirm(callback: CallbackQuery, state: FSMContext, bot: Bot)
 
 
 @router.callback_query(F.data.in_({"order_confirm", "order_cancel"}))
-async def cb_order_expired(callback: CallbackQuery):
-    await callback.answer("Bu buyurtma eskirgan. Iltimos, savatdan qaytadan rasmiylashtiring.", show_alert=True)
+async def cb_order_expired(callback: CallbackQuery, lang: str):
+    await callback.answer(t("order_expired", lang), show_alert=True)
 
 
-# ---------------- Buyurtmalarim / Aloqa ----------------
-@router.message(F.text == kb.BTN_ORDERS)
-async def my_orders(message: Message):
+# ---------------- Buyurtmalarim / Ma'lumot ----------------
+@router.message(F.text.in_(all_texts("btn_orders")))
+async def my_orders(message: Message, lang: str):
     orders = await db.get_user_orders(message.from_user.id)
     if not orders:
-        await message.answer("Sizda hali buyurtmalar yo'q.")
+        await message.answer(t("no_orders", lang))
         return
-    lines = ["📦 <b>Oxirgi buyurtmalaringiz:</b>\n"]
+    lines = [t("my_orders", lang) + "\n"]
     for o in orders:
         lines.append(
-            f"#{o['id']} • {o['created_at']} • {fmt_price(o['total'])}\n"
-            f"    {kb.STATUS_LABELS.get(o['status'], o['status'])}"
+            f"#{o['id']} • {o['created_at']} • {kb.fmt_price(o['total'], lang)}\n"
+            f"    {kb.status_label(o['status'], lang)}"
         )
     await message.answer("\n".join(lines))
 
 
-@router.message(F.text == kb.BTN_ABOUT)
-async def about(message: Message):
-    await message.answer(ABOUT_TEXT)
+@router.message(F.text.in_(all_texts("btn_about")))
+async def about(message: Message, lang: str):
+    await message.answer(_env_text("ABOUT_TEXT", lang) or t("about", lang, shop=escape(SHOP_NAME)))
 
 
-@router.message(F.text == kb.BTN_CHANNEL)
-async def channel(message: Message):
-    markup = kb.channel_kb()
+@router.message(F.text.in_(all_texts("btn_channel")))
+async def channel(message: Message, lang: str):
+    markup = kb.channel_kb(lang)
     if markup:
-        await message.answer("📢 Yangi kolleksiyalar va aksiyalardan xabardor bo'lish uchun kanalimizga obuna bo'ling!",
-                             reply_markup=markup)
+        await message.answer(t("channel_text", lang), reply_markup=markup)
 
 
-@router.message(F.text == kb.BTN_CONTACT)
-async def contact(message: Message):
-    await message.answer(CONTACT_TEXT)
+@router.message(F.text.in_(all_texts("btn_contact")))
+async def contact(message: Message, lang: str):
+    await message.answer(_env_text("CONTACT_TEXT", lang) or t("contact_default", lang))
 
 
 @router.message()
-async def fallback(message: Message):
-    await message.answer(
-        "Iltimos, quyidagi menyudan foydalaning 👇",
-        reply_markup=kb.main_menu(is_admin(message.from_user.id)),
-    )
+async def fallback(message: Message, lang: str):
+    await message.answer(t("use_menu", lang), reply_markup=kb.main_menu(lang, is_admin(message.from_user.id)))

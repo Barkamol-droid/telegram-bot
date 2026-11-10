@@ -12,6 +12,7 @@ from aiogram.types import BotCommand
 import db
 from config import ADMIN_IDS, BOT_TOKEN
 from handlers import admin, common, user
+from i18n import LangMiddleware
 
 
 async def main():
@@ -30,9 +31,14 @@ async def main():
     bot = Bot(BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
     dp = Dispatcher(storage=MemoryStorage())
     # Tartib muhim: common (start/bekor qilish) -> admin -> user
+    # Har bir xabar/tugma bosilishiga foydalanuvchi tilini (lang) qo'shadi
+    dp.message.middleware(LangMiddleware())
+    dp.callback_query.middleware(LangMiddleware())
     dp.include_routers(common.router, admin.router, user.router)
 
     await bot.set_my_commands([BotCommand(command="start", description="Botni ishga tushirish")])
+    for code, description in {"ru": "Запустить бота", "kk": "Ботты іске қосу"}.items():
+        await bot.set_my_commands([BotCommand(command="start", description=description)], language_code=code)
     await bot.delete_webhook(drop_pending_updates=True)
     logging.info("Bot ishga tushdi")
     await dp.start_polling(bot)

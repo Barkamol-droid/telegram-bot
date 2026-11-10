@@ -23,3 +23,8 @@ class AddProduct(StatesGroup):
 
 class Broadcast(StatesGroup):
     message = State()
+
+
+class PromoForm(StatesGroup):
+    percent = State()
+    custom_period = State()

@@ -3,11 +3,11 @@
 DATABASE_URL o'zgaruvchisi berilsa — PostgreSQL (asyncpg) ishlatiladi
 (masalan, Railway'dagi Postgres), aks holda — SQLite fayl (DB_PATH).
 """
+import json
 import os
 from contextlib import asynccontextmanager
-from datetime import datetime
-
-from config import DATABASE_URL, DB_PATH, DEFAULT_CATEGORIES
+import pricing
+from config import DATABASE_URL, DB_PATH, DEFAULT_CATEGORIES, now
 
 USE_PG = bool(DATABASE_URL)
 
@@ -34,17 +34,21 @@ CREATE TABLE IF NOT EXISTS users (
     id          {int} PRIMARY KEY,
     full_name   TEXT,
     username    TEXT,
+    lang        TEXT,
     created_at  TEXT
 );
 CREATE TABLE IF NOT EXISTS categories (
-    id    {pk},
-    name  TEXT NOT NULL
+    id         {pk},
+    name       TEXT NOT NULL,
+    name_i18n  TEXT
 );
 CREATE TABLE IF NOT EXISTS products (
     id           {pk},
     category_id  {int} NOT NULL,
     name         TEXT NOT NULL,
+    name_i18n    TEXT,
     description  TEXT,
+    description_i18n TEXT,
     price        {int} NOT NULL,
     photo_id     TEXT,
     sizes        TEXT,
@@ -67,6 +71,8 @@ CREATE TABLE IF NOT EXISTS orders (
     longitude   {real},
     comment     TEXT,
     total       {int} NOT NULL,
+    discount    {int} NOT NULL DEFAULT 0,
+    lang        TEXT,
     status      TEXT NOT NULL DEFAULT 'new',
     created_at  TEXT
 );
@@ -74,6 +80,7 @@ CREATE TABLE IF NOT EXISTS order_items (
     order_id    {int} NOT NULL,
     product_id  {int} NOT NULL,
     name        TEXT NOT NULL,
+    name_i18n   TEXT,
     size        TEXT NOT NULL DEFAULT '',
     price       {int} NOT NULL,
     qty         INTEGER NOT NULL
@@ -82,7 +89,7 @@ CREATE TABLE IF NOT EXISTS order_items (
 
 
 def _now() -> str:
-    return datetime.now().strftime("%Y-%m-%d %H:%M")
+    return now().strftime("%Y-%m-%d %H:%M")
 
 
 def _q(query: str) -> str:
@@ -169,18 +176,35 @@ async def _insert(query: str, params=()) -> int:
         return await db.insert(query, params)
 
 
+# Keyinroq qo'shilgan ustunlar: eski bazalarga avtomatik qo'shiladi
+_EXTRA_COLUMNS = [
+    ("products", "sizes", "TEXT"),
+    ("orders", "comment", "TEXT"),
+    ("order_items", "size", "TEXT NOT NULL DEFAULT ''"),
+    ("users", "lang", "TEXT"),
+    ("categories", "name_i18n", "TEXT"),
+    ("products", "name_i18n", "TEXT"),
+    ("products", "description_i18n", "TEXT"),
+    ("orders", "discount", f"{_T['int']} NOT NULL DEFAULT 0"),
+    ("orders", "lang", "TEXT"),
+    ("order_items", "name_i18n", "TEXT"),
+]
+
+
+async def _add_missing_columns(db: _Conn):
+    for table, column, col_type in _EXTRA_COLUMNS:
+        if USE_PG:
+            await db.execute(f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS {column} {col_type}")
+        else:
+            existing = {r["name"] for r in await db.fetchall(f"PRAGMA table_info({table})")}
+            if column not in existing:
+                await db.execute(f"ALTER TABLE {table} ADD COLUMN {column} {col_type}")
+
+
 async def _sqlite_migrate(db: _Conn):
     """Eski SQLite bazalarni yangi tuzilishga moslash."""
-    async def columns(table):
-        return {r["name"] for r in await db.fetchall(f"PRAGMA table_info({table})")}
-
-    if "sizes" not in await columns("products"):
-        await db.execute("ALTER TABLE products ADD COLUMN sizes TEXT")
-    if "comment" not in await columns("orders"):
-        await db.execute("ALTER TABLE orders ADD COLUMN comment TEXT")
-    if "size" not in await columns("order_items"):
-        await db.execute("ALTER TABLE order_items ADD COLUMN size TEXT NOT NULL DEFAULT ''")
-    if "size" not in await columns("cart"):
+    cart_columns = {r["name"] for r in await db.fetchall("PRAGMA table_info(cart)")}
+    if "size" not in cart_columns:
         # Savat vaqtinchalik ma'lumot — qayta yaratish xavfsiz
         await db.execute("DROP TABLE cart")
         await db.raw.executescript(SCHEMA)
@@ -204,12 +228,45 @@ async def init_db():
     async with _tx() as db:
         if not USE_PG:
             await _sqlite_migrate(db)
+        await _add_missing_columns(db)
         # Birinchi ishga tushirishda standart kategoriyalarni yaratish
         if not await db.fetchone("SELECT 1 FROM meta WHERE key = 'seeded'"):
             await db.executemany(
-                "INSERT INTO categories (name) VALUES (?)", [(c,) for c in DEFAULT_CATEGORIES]
+                "INSERT INTO categories (name, name_i18n) VALUES (?, ?)",
+                [(c["uz"], json.dumps(c, ensure_ascii=False)) for c in DEFAULT_CATEGORIES],
             )
             await db.execute("INSERT INTO meta (key, value) VALUES ('seeded', '1')")
+        # Avval tarjimasiz yaratilgan standart kategoriyalarga tarjima qo'shish
+        for c in DEFAULT_CATEGORIES:
+            await db.execute(
+                "UPDATE categories SET name_i18n = ? WHERE name = ? AND name_i18n IS NULL",
+                (json.dumps(c, ensure_ascii=False), c["uz"]),
+            )
+
+
+# ---------------- Sozlamalar (meta) va aksiya ----------------
+async def get_meta(key: str) -> str | None:
+    row = await _fetchone("SELECT value FROM meta WHERE key = ?", (key,))
+    return row["value"] if row else None
+
+
+async def set_meta(key: str, value: str | None):
+    if value is None:
+        await _execute("DELETE FROM meta WHERE key = ?", (key,))
+    else:
+        await _execute(
+            "INSERT INTO meta (key, value) VALUES (?, ?) "
+            "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            (key, value),
+        )
+
+
+async def get_promo() -> dict | None:
+    return pricing.parse(await get_meta("promo"))
+
+
+async def set_promo(raw: str | None):
+    await set_meta("promo", raw)
 
 
 # ---------------- Foydalanuvchilar ----------------
@@ -219,6 +276,19 @@ async def add_user(user_id: int, full_name: str, username: str | None):
         "ON CONFLICT(id) DO UPDATE SET full_name = excluded.full_name, username = excluded.username",
         (user_id, full_name, username, _now()),
     )
+
+
+async def get_user_lang(user_id: int) -> str | None:
+    row = await _fetchone("SELECT lang FROM users WHERE id = ?", (user_id,))
+    return row["lang"] if row else None
+
+
+async def set_user_lang(user_id: int, lang: str):
+    await _execute("UPDATE users SET lang = ? WHERE id = ?", (lang, user_id))
+
+
+async def get_users_with_lang() -> list[dict]:
+    return await _fetchall("SELECT id, lang FROM users")
 
 
 async def get_all_user_ids() -> list[int]:
@@ -235,8 +305,8 @@ async def get_category(category_id: int):
     return await _fetchone("SELECT * FROM categories WHERE id = ?", (category_id,))
 
 
-async def add_category(name: str) -> int:
-    return await _insert("INSERT INTO categories (name) VALUES (?)", (name,))
+async def add_category(name: str, name_i18n: str | None = None) -> int:
+    return await _insert("INSERT INTO categories (name, name_i18n) VALUES (?, ?)", (name, name_i18n))
 
 
 async def delete_category(category_id: int):
@@ -268,10 +338,13 @@ def product_sizes(product) -> list[str]:
 
 
 async def add_product(category_id: int, name: str, description: str | None,
-                      price: int, photo_id: str | None, sizes: list[str] | None = None) -> int:
+                      price: int, photo_id: str | None, sizes: list[str] | None = None,
+                      name_i18n: str | None = None, description_i18n: str | None = None) -> int:
     return await _insert(
-        "INSERT INTO products (category_id, name, description, price, photo_id, sizes) VALUES (?, ?, ?, ?, ?, ?)",
-        (category_id, name, description, price, photo_id, ",".join(sizes) if sizes else None),
+        "INSERT INTO products (category_id, name, name_i18n, description, description_i18n, price, photo_id, sizes) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        (category_id, name, name_i18n, description, description_i18n, price, photo_id,
+         ",".join(sizes) if sizes else None),
     )
 
 
@@ -297,12 +370,21 @@ async def cart_get(user_id: int):
 
 
 async def _cart_get(db: _Conn, user_id: int):
-    return await db.fetchall(
-        "SELECT c.product_id, c.size, c.qty, p.name, p.price, (c.qty * p.price) AS subtotal "
+    """Savatdagi mahsulotlar — joriy aksiya hisobga olingan narxlar bilan.
+    Har bir qatorda: price (yakuniy), old_price (aksiyadan oldingi yoki None), percent, subtotal."""
+    rows = await db.fetchall(
+        "SELECT c.product_id, c.size, c.qty, p.name, p.name_i18n, p.price, p.category_id "
         "FROM cart c JOIN products p ON p.id = c.product_id "
         "WHERE c.user_id = ? AND p.is_active = 1 ORDER BY p.name, c.size",
         (user_id,),
     )
+    meta = await db.fetchone("SELECT value FROM meta WHERE key = 'promo'")
+    promo = pricing.parse(meta["value"] if meta else None)
+    for r in rows:
+        r["price"], r["old_price"], r["percent"] = pricing.price_info(int(r["price"]), r["category_id"], promo)
+        r["subtotal"] = r["price"] * r["qty"]
+        r["saved"] = (r["old_price"] - r["price"]) * r["qty"] if r["old_price"] else 0
+    return rows
 
 
 async def cart_remove(user_id: int, product_id: int, size: str = ""):
@@ -318,21 +400,26 @@ async def cart_clear(user_id: int):
 # ---------------- Buyurtmalar ----------------
 async def create_order(user_id: int, full_name: str, phone: str, address: str | None,
                        latitude: float | None = None, longitude: float | None = None,
-                       comment: str | None = None) -> int | None:
+                       comment: str | None = None, lang: str | None = None) -> int | None:
     """Savatdagi mahsulotlardan buyurtma yaratadi. Savat bo'sh bo'lsa None qaytaradi."""
     async with _tx() as db:
         items = await _cart_get(db, user_id)
         if not items:
             return None
-        total = sum(int(i["subtotal"]) for i in items)
+        total = sum(i["subtotal"] for i in items)
+        discount = sum(i["saved"] for i in items)
         order_id = await db.insert(
-            "INSERT INTO orders (user_id, full_name, phone, address, latitude, longitude, comment, total, status, created_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'new', ?)",
-            (user_id, full_name, phone, address, latitude, longitude, comment, total, _now()),
+            "INSERT INTO orders (user_id, full_name, phone, address, latitude, longitude, comment, "
+            "total, discount, lang, status, created_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'new', ?)",
+            (user_id, full_name, phone, address, latitude, longitude, comment,
+             total, discount, lang, _now()),
         )
         await db.executemany(
-            "INSERT INTO order_items (order_id, product_id, name, size, price, qty) VALUES (?, ?, ?, ?, ?, ?)",
-            [(order_id, i["product_id"], i["name"], i["size"], i["price"], i["qty"]) for i in items],
+            "INSERT INTO order_items (order_id, product_id, name, name_i18n, size, price, qty) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            [(order_id, i["product_id"], i["name"], i["name_i18n"], i["size"], i["price"], i["qty"])
+             for i in items],
         )
         await db.execute("DELETE FROM cart WHERE user_id = ?", (user_id,))
     return order_id

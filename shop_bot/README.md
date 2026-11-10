@@ -1,11 +1,13 @@
 # 💎 Azure Jewelry — zargarlik do'koni boti (aiogram 3)
 
-Telegram orqali zargarlik buyumlarini sotish uchun bot: katalog, uzuk o'lchamini tanlash, savat,
-buyurtma berish va admin panel.
+Telegram orqali zargarlik buyumlarini sotish uchun bot: 4 tilda (🇺🇿 o'zbek, 🇷🇺 rus, 🇹🇯 tojik, 🇰🇿 qozoq),
+aksiyalar (masalan 11.11), uzuk o'lchamini tanlash, savat, buyurtma berish va admin panel.
 
 ## Imkoniyatlar
 
 **Mijozlar uchun**
+- 🌐 Til tanlash: birinchi /start da va «🌐 Til» tugmasi orqali (o'zbek, rus, tojik, qozoq)
+- 🔥 Aksiya: chegirmali narxlar (eski narx chizilgan), tugashigacha qolgan vaqt, savatda «Tejadingiz»
 - 🛍 Katalog — kategoriyalar va mahsulotlar (rasm, tavsif, narx)
 - 📏 O'lcham tanlash (uzuk, zanjir va h.k.) — o'lchami bor mahsulotni o'lchamsiz savatga qo'shib bo'lmaydi
 - ➖/➕ miqdor tanlash va savatga qo'shish
@@ -17,6 +19,10 @@ buyurtma berish va admin panel.
 - 🔔 Buyurtma holati o'zgarganda xabarnoma
 
 **Adminlar uchun** (`/admin` yoki «⚙️ Admin panel»)
+- 🔥 Aksiya: foiz (1–90%), barcha mahsulotlar yoki bitta kategoriya, muddat («Faqat 11.11 kuni»,
+  «Hozirdan 11.11 oxirigacha» yoki istalgan sana). Aksiya o'zi boshlanadi va o'zi tugaydi.
+  «📢 Mijozlarga e'lon qilish» — har bir mijozga o'z tilida xabar; «👁 Mijozlar qanday ko'radi» — 4 tilda ko'rish
+- Mahsulot/kategoriya nomini 4 tilda kiritish: `O'zbekcha | Русский | Тоҷикӣ | Қазақша`
 - Kategoriya / mahsulot qo'shish (rasm, tavsif, narx, o'lchamlar) va o'chirish
 - Birinchi ishga tushirishda tayyor kategoriyalar yaratiladi: Uzuklar, Sirg'alar, Zanjirlar,
   Bilakuzuklar, Kulonlar, To'plamlar
@@ -47,7 +53,8 @@ python main.py
 | `SHOP_NAME`    | Do'kon nomi (standart: `Azure Jewelry`)                      |
 | `CHANNEL`      | Telegram kanal (standart: `@azure_jewelry`, bo'sh — tugma chiqmaydi) |
 | `ABOUT_TEXT`   | «💎 Biz haqimizda» matni (ixtiyoriy)                          |
-| `CONTACT_TEXT` | «☎️ Aloqa» tugmasi matni (`\n` — yangi qator)                 |
+| `TIMEZONE`     | Vaqt mintaqasi (standart: `Asia/Tashkent`) — aksiya vaqti shu bo'yicha |
+| `CONTACT_TEXT` | «☎️ Aloqa» tugmasi matni (`\n` — yangi qator). Tilga xos: `CONTACT_TEXT_RU`, `_TG`, `_KK` |
 
 > ⚠️ Tokenni hech qachon kodga yozmang va GitHub'ga yuklamang — faqat `.env` yoki hosting
 > sozlamalaridagi environment variable orqali bering.

@@ -1,6 +1,10 @@
-"""Admin panel: kategoriya/mahsulot boshqaruvi, buyurtmalar, statistika, xabar yuborish."""
+"""Admin panel: aksiya, kategoriya/mahsulot boshqaruvi, buyurtmalar, statistika, xabar yuborish.
+
+Admin panel o'zbek tilida. Mijozlarga boradigan xabarlar esa har birining o'z tilida yuboriladi.
+"""
 import asyncio
 import logging
+from datetime import datetime, timedelta
 from html import escape
 
 from aiogram import Bot, F, Router
@@ -11,10 +15,17 @@ from aiogram.types import CallbackQuery, Message, TelegramObject
 
 import db
 import keyboards as kb
-from config import fmt_price, is_admin
-from states import AddCategory, AddProduct, Broadcast
+import pricing
+from config import TIMEZONE, fmt_price, is_admin, now
+from i18n import DEFAULT_LANG, LANG_NAMES, all_texts, parse_multilang, t
+from states import AddCategory, AddProduct, Broadcast, PromoForm
 
 log = logging.getLogger(__name__)
+
+MULTILANG_HINT = (
+    "\n\n🌐 <i>Bir nechta tilda yozish uchun «|» bilan ajrating (tartib: o'zbek | rus | tojik | qozoq):</i>\n"
+    "<code>{example}</code>\n<i>Bitta tilda yozsangiz — barcha tillarda shu matn ko'rinadi.</i>"
+)
 
 
 class IsAdmin(BaseFilter):
@@ -35,6 +46,31 @@ async def edit(callback: CallbackQuery, text: str, markup=None):
     await callback.answer()
 
 
+async def back_to_panel(message: Message, lang: str, text: str):
+    await message.answer(text, reply_markup=kb.main_menu(lang, True))
+    await message.answer("⚙️ <b>Admin panel</b>", reply_markup=kb.admin_menu_kb())
+
+
+def is_skip(text: str | None) -> bool:
+    return text in all_texts("btn_skip")
+
+
+async def send_safely(coro_factory) -> bool:
+    """Xabar yuborish; Telegram limiti bo'lsa kutib, qayta urinadi."""
+    try:
+        await coro_factory()
+        return True
+    except TelegramRetryAfter as e:
+        await asyncio.sleep(e.retry_after)
+        try:
+            await coro_factory()
+            return True
+        except Exception:
+            return False
+    except Exception:
+        return False
+
+
 # ---------------- Menyu ----------------
 @router.message(Command("admin"))
 @router.message(F.text == kb.BTN_ADMIN)
@@ -49,24 +85,199 @@ async def cb_admin_menu(callback: CallbackQuery, state: FSMContext):
     await edit(callback, "⚙️ <b>Admin panel</b>", kb.admin_menu_kb())
 
 
-# ---------------- Kategoriya qo'shish ----------------
+# ================= AKSIYA =================
+def promo_admin_text(promo: dict | None, category: dict | None) -> str:
+    if not promo:
+        return "🔥 <b>Aksiya</b>\n\nHozir aksiya yo'q. «➕ Yangi aksiya» tugmasini bosing."
+    if pricing.is_running(promo):
+        state = "🟢 Faol"
+    elif pricing.is_upcoming(promo):
+        state = "🟡 Hali boshlanmagan"
+    else:
+        state = "🔴 Tugagan"
+    scope = f"«{escape(category['name'])}» kategoriyasi" if category else "Barcha mahsulotlar"
+    return (
+        "🔥 <b>Aksiya</b>\n\n"
+        f"Holati: {state}\n"
+        f"Chegirma: <b>{promo['percent']}%</b>\n"
+        f"Qamrov: {scope}\n"
+        f"Boshlanishi: {promo['_start']:%d.%m.%Y %H:%M}\n"
+        f"Tugashi: {promo['_end']:%d.%m.%Y %H:%M}\n"
+        f"Vaqt mintaqasi: {TIMEZONE.key}"
+    )
+
+
+async def _promo_and_category():
+    promo = await db.get_promo()
+    category = await db.get_category(promo["category_id"]) if promo and promo.get("category_id") else None
+    return promo, category
+
+
+@router.callback_query(F.data == "adm:promo")
+async def cb_promo(callback: CallbackQuery, state: FSMContext):
+    await state.clear()
+    promo, category = await _promo_and_category()
+    await edit(callback, promo_admin_text(promo, category), kb.admin_promo_kb(promo is not None))
+
+
+@router.callback_query(F.data == "pr:new")
+async def cb_promo_new(callback: CallbackQuery, state: FSMContext):
+    await state.set_state(PromoForm.percent)
+    await callback.message.answer(
+        "1/3. Chegirma foizini tanlang yoki yozing (1 dan 90 gacha):", reply_markup=kb.promo_percent_kb()
+    )
+    await callback.answer()
+
+
+@router.message(PromoForm.percent, F.text)
+async def promo_percent(message: Message, state: FSMContext):
+    raw = message.text.replace("%", "").strip()
+    if not raw.isdigit() or not 1 <= int(raw) <= 90:
+        await message.answer("❗️ 1 dan 90 gacha butun son kiriting. Masalan: 11")
+        return
+    await state.update_data(percent=int(raw))
+    await state.set_state(None)
+    categories = await db.get_categories()
+    await message.answer(f"✅ Chegirma: {raw}%", reply_markup=kb.main_menu(DEFAULT_LANG, True))
+    await message.answer("2/3. Aksiya qaysi mahsulotlarga amal qiladi?", reply_markup=kb.promo_scope_kb(categories))
+
+
+@router.callback_query(F.data.startswith("psc:"))
+async def cb_promo_scope(callback: CallbackQuery, state: FSMContext):
+    value = callback.data.split(":")[1]
+    if "percent" not in await state.get_data():
+        await callback.answer("Qaytadan boshlang: 🔥 Aksiya → ➕ Yangi aksiya", show_alert=True)
+        return
+    await state.update_data(category_id=None if value == "all" else int(value))
+    await edit(callback, "3/3. Aksiya muddatini tanlang:", kb.promo_period_kb())
+
+
+def nov11_bounds() -> tuple[datetime, datetime]:
+    """Eng yaqin 11-noyabr kuni: 00:00 dan 23:59:59 gacha (bot vaqt mintaqasida)."""
+    current = now()
+    year = current.year
+    if current >= datetime(year, 11, 12, tzinfo=TIMEZONE):
+        year += 1
+    start = datetime(year, 11, 11, tzinfo=TIMEZONE)
+    return start, start + timedelta(days=1)
+
+
+async def _save_promo(event_message: Message, state: FSMContext, start: datetime, end: datetime, kind: str):
+    data = await state.get_data()
+    await state.clear()
+    await db.set_promo(pricing.dump(data["percent"], start, end, data.get("category_id"), kind))
+    promo, category = await _promo_and_category()
+    await event_message.answer(
+        "✅ <b>Aksiya saqlandi!</b>\n\n" + promo_admin_text(promo, category)
+        + "\n\nEndi mijozlarga e'lon qilishingiz mumkin 👇",
+        reply_markup=kb.admin_promo_kb(True),
+    )
+
+
+@router.callback_query(F.data.startswith("pp:"))
+async def cb_promo_period(callback: CallbackQuery, state: FSMContext):
+    choice = callback.data.split(":")[1]
+    if "percent" not in await state.get_data():
+        await callback.answer("Qaytadan boshlang: 🔥 Aksiya → ➕ Yangi aksiya", show_alert=True)
+        return
+    if choice == "custom":
+        await state.set_state(PromoForm.custom_period)
+        await callback.message.answer(
+            "Muddatni quyidagi ko'rinishda yozing:\n"
+            "<code>10.11.2026 18:00 - 12.11.2026 23:59</code>",
+            reply_markup=kb.cancel_kb(DEFAULT_LANG),
+        )
+        await callback.answer()
+        return
+    start, end = nov11_bounds()
+    if choice == "now":
+        start = min(start, now())
+    try:
+        await callback.message.edit_reply_markup(reply_markup=None)
+    except TelegramBadRequest:
+        pass
+    await callback.answer()
+    await _save_promo(callback.message, state, start, end, "1111")
+
+
+@router.message(PromoForm.custom_period, F.text)
+async def promo_custom_period(message: Message, state: FSMContext):
+    try:
+        left, right = [part.strip() for part in message.text.split(" - ")]
+        start = datetime.strptime(left, "%d.%m.%Y %H:%M").replace(tzinfo=TIMEZONE)
+        end = datetime.strptime(right, "%d.%m.%Y %H:%M").replace(tzinfo=TIMEZONE)
+    except ValueError:
+        await message.answer("❗️ Format noto'g'ri. Masalan:\n<code>10.11.2026 18:00 - 12.11.2026 23:59</code>")
+        return
+    if end <= start or end <= now():
+        await message.answer("❗️ Tugash vaqti boshlanishidan keyin va kelajakda bo'lishi kerak.")
+        return
+    await message.answer("✅ Muddat qabul qilindi.", reply_markup=kb.main_menu(DEFAULT_LANG, True))
+    is_1111 = start.month == 11 and start.day <= 11 <= end.day and end.month == 11
+    await _save_promo(message, state, start, end, "1111" if is_1111 else "custom")
+
+
+@router.callback_query(F.data == "pr:stop")
+async def cb_promo_stop(callback: CallbackQuery):
+    await db.set_promo(None)
+    await callback.answer("⛔️ Aksiya to'xtatildi. Narxlar asl holiga qaytdi.", show_alert=True)
+    await edit(callback, promo_admin_text(None, None), kb.admin_promo_kb(False))
+
+
+@router.callback_query(F.data == "pr:preview")
+async def cb_promo_preview(callback: CallbackQuery):
+    promo, category = await _promo_and_category()
+    if not promo:
+        await callback.answer("Aksiya yo'q", show_alert=True)
+        return
+    for code, name in LANG_NAMES.items():
+        banner = kb.promo_banner(promo, code, category, footer=True)
+        if banner:
+            await callback.message.answer(f"<i>{name}:</i>\n\n{banner}", reply_markup=kb.shop_now_kb(code))
+    await callback.answer()
+
+
+@router.callback_query(F.data == "pr:announce")
+async def cb_promo_announce(callback: CallbackQuery):
+    promo, category = await _promo_and_category()
+    if not promo or pricing.is_finished(promo):
+        await callback.answer("Faol yoki rejalashtirilgan aksiya yo'q", show_alert=True)
+        return
+    users = await db.get_users_with_lang()
+    await callback.answer()
+    await callback.message.answer(f"⏳ {len(users)} ta mijozga e'lon yuborilmoqda (har biriga o'z tilida)...")
+    ok = fail = 0
+    for u in users:
+        lang = u["lang"] or DEFAULT_LANG
+        text = kb.promo_banner(promo, lang, category, footer=True)
+        sent = await send_safely(
+            lambda: callback.bot.send_message(u["id"], text, reply_markup=kb.shop_now_kb(lang))
+        )
+        ok, fail = (ok + 1, fail) if sent else (ok, fail + 1)
+        await asyncio.sleep(0.05)  # Telegram limitlaridan oshmaslik uchun
+    await callback.message.answer(f"✅ E'lon yuborildi: {ok}\n❌ Yuborilmadi (botni bloklagan): {fail}")
+
+
+# ================= KATEGORIYALAR =================
 @router.callback_query(F.data == "adm:add_cat")
 async def cb_add_category(callback: CallbackQuery, state: FSMContext):
     await state.set_state(AddCategory.name)
-    await callback.message.answer("Yangi kategoriya nomini kiriting:", reply_markup=kb.cancel_kb())
+    await callback.message.answer(
+        "Yangi kategoriya nomini kiriting:"
+        + MULTILANG_HINT.format(example="🎀 Bolalar uchun | 🎀 Детское | 🎀 Барои кӯдакон | 🎀 Балаларға"),
+        reply_markup=kb.cancel_kb(DEFAULT_LANG),
+    )
     await callback.answer()
 
 
 @router.message(AddCategory.name, F.text)
-async def add_category_name(message: Message, state: FSMContext):
-    name = message.text.strip()[:64]
-    await db.add_category(name)
+async def add_category_name(message: Message, state: FSMContext, lang: str):
+    name, name_i18n = parse_multilang(message.text.strip()[:200])
+    await db.add_category(name[:64], name_i18n)
     await state.clear()
-    await message.answer(f"✅ «{escape(name)}» kategoriyasi qo'shildi.", reply_markup=kb.main_menu(True))
-    await message.answer("⚙️ <b>Admin panel</b>", reply_markup=kb.admin_menu_kb())
+    await back_to_panel(message, lang, f"✅ «{escape(name)}» kategoriyasi qo'shildi.")
 
 
-# ---------------- Kategoriyani o'chirish ----------------
 @router.callback_query(F.data == "adm:del_cat")
 async def cb_del_category(callback: CallbackQuery):
     categories = await db.get_categories()
@@ -90,7 +301,7 @@ async def cb_del_category_do(callback: CallbackQuery):
     await edit(callback, "⚙️ <b>Admin panel</b>", kb.admin_menu_kb())
 
 
-# ---------------- Mahsulot qo'shish ----------------
+# ================= MAHSULOTLAR =================
 @router.callback_query(F.data == "adm:add_prod")
 async def cb_add_product(callback: CallbackQuery):
     categories = await db.get_categories()
@@ -104,27 +315,42 @@ async def cb_add_product(callback: CallbackQuery):
 async def cb_add_product_category(callback: CallbackQuery, state: FSMContext):
     await state.update_data(category_id=int(callback.data.split(":")[1]))
     await state.set_state(AddProduct.name)
-    await callback.message.answer("Mahsulot nomini kiriting:", reply_markup=kb.cancel_kb())
+    await callback.message.answer(
+        "Mahsulot nomini kiriting:"
+        + MULTILANG_HINT.format(example="Oltin uzuk | Золотое кольцо | Ангуштарини тиллоӣ | Алтын сақина"),
+        reply_markup=kb.cancel_kb(DEFAULT_LANG),
+    )
     await callback.answer()
 
 
 @router.message(AddProduct.name, F.text)
 async def add_product_name(message: Message, state: FSMContext):
-    await state.update_data(name=message.text.strip()[:100])
+    name, name_i18n = parse_multilang(message.text.strip()[:400])
+    await state.update_data(name=name[:100], name_i18n=name_i18n)
     await state.set_state(AddProduct.description)
     await message.answer(
-        "Mahsulot tavsifini kiriting (material, proba, tosh, vazn va h.k.).\n"
-        "Masalan: <i>585 proba oq oltin, brilliant 0.25 ct, vazni 2.1 g</i>",
-        reply_markup=kb.skip_cancel_kb(),
+        "Mahsulot tavsifini kiriting (material, proba, tosh, vazn va h.k.)."
+        + MULTILANG_HINT.format(
+            example="585 proba, 2.1 g | 585 проба, 2,1 г | Пробаи 585, 2,1 г | 585 сынама, 2,1 г"
+        ),
+        reply_markup=kb.skip_cancel_kb(DEFAULT_LANG),
     )
 
 
 @router.message(AddProduct.description, F.text)
 async def add_product_description(message: Message, state: FSMContext):
-    description = None if message.text == kb.BTN_SKIP else message.text.strip()[:900]
-    await state.update_data(description=description)
+    if is_skip(message.text):
+        description, description_i18n = None, None
+    else:
+        description, description_i18n = parse_multilang(message.text.strip()[:3000])
+        description = description[:900]
+    await state.update_data(description=description, description_i18n=description_i18n)
     await state.set_state(AddProduct.price)
-    await message.answer("Narxini kiriting (faqat raqam, so'mda). Masalan: 25000", reply_markup=kb.cancel_kb())
+    await message.answer(
+        "Narxini kiriting (faqat raqam, so'mda). Masalan: 25000\n"
+        "<i>Aksiya bo'lsa, chegirma avtomatik hisoblanadi — bu yerga asl narxni yozing.</i>",
+        reply_markup=kb.cancel_kb(DEFAULT_LANG),
+    )
 
 
 @router.message(AddProduct.price, F.text)
@@ -140,16 +366,14 @@ async def add_product_price(message: Message, state: FSMContext):
         "Masalan, uzuk uchun: <code>16, 16.5, 17, 17.5, 18, 18.5</code>\n"
         "Zanjir uchun: <code>40, 45, 50</code>\n\n"
         "O'lcham kerak bo'lmasa (sirg'a, kulon va h.k.) — «O'tkazib yuborish» ni bosing.",
-        reply_markup=kb.skip_cancel_kb(),
+        reply_markup=kb.skip_cancel_kb(DEFAULT_LANG),
     )
 
 
 @router.message(AddProduct.sizes, F.text)
 async def add_product_sizes(message: Message, state: FSMContext):
-    if message.text == kb.BTN_SKIP:
-        sizes = []
-    else:
-        sizes = []
+    sizes = []
+    if not is_skip(message.text):
         for raw in message.text.replace(";", ",").split(","):
             size = raw.strip().replace(":", "")
             if size and size not in sizes:
@@ -162,26 +386,29 @@ async def add_product_sizes(message: Message, state: FSMContext):
             return
     await state.update_data(sizes=sizes)
     await state.set_state(AddProduct.photo)
-    await message.answer("📸 Mahsulot rasmini yuboring:", reply_markup=kb.skip_cancel_kb())
+    await message.answer("📸 Mahsulot rasmini yuboring:", reply_markup=kb.skip_cancel_kb(DEFAULT_LANG))
 
 
 @router.message(AddProduct.photo, F.photo)
-@router.message(AddProduct.photo, F.text == kb.BTN_SKIP)
-async def add_product_photo(message: Message, state: FSMContext):
+@router.message(AddProduct.photo, F.text.in_(all_texts("btn_skip")))
+async def add_product_photo(message: Message, state: FSMContext, lang: str):
     photo_id = message.photo[-1].file_id if message.photo else None
     data = await state.get_data()
     await state.clear()
     if not await db.get_category(data["category_id"]):
-        await message.answer("❗️ Kategoriya o'chirilgan. Qaytadan urinib ko'ring.", reply_markup=kb.main_menu(True))
+        await message.answer("❗️ Kategoriya o'chirilgan. Qaytadan urinib ko'ring.", reply_markup=kb.main_menu(lang, True))
         return
     sizes = data.get("sizes") or []
-    await db.add_product(data["category_id"], data["name"], data["description"], data["price"], photo_id, sizes)
-    sizes_info = f"\n📏 O'lchamlar: {escape(', '.join(sizes))}" if sizes else ""
-    await message.answer(
-        f"✅ Mahsulot qo'shildi: <b>{escape(data['name'])}</b> — {fmt_price(data['price'])}{sizes_info}",
-        reply_markup=kb.main_menu(True),
+    await db.add_product(
+        data["category_id"], data["name"], data["description"], data["price"], photo_id, sizes,
+        data.get("name_i18n"), data.get("description_i18n"),
     )
-    await message.answer("⚙️ <b>Admin panel</b>", reply_markup=kb.admin_menu_kb())
+    info = f"✅ Mahsulot qo'shildi: <b>{escape(data['name'])}</b> — {fmt_price(data['price'])}"
+    if sizes:
+        info += f"\n📏 O'lchamlar: {escape(', '.join(sizes))}"
+    if data.get("name_i18n"):
+        info += "\n🌐 Tarjimalar saqlandi"
+    await back_to_panel(message, lang, info)
 
 
 @router.message(AddProduct.photo)
@@ -189,7 +416,6 @@ async def add_product_photo_invalid(message: Message):
     await message.answer("Iltimos, rasm yuboring yoki «O'tkazib yuborish» tugmasini bosing.")
 
 
-# ---------------- Mahsulotni o'chirish ----------------
 @router.callback_query(F.data == "adm:del_prod")
 async def cb_del_product(callback: CallbackQuery):
     categories = await db.get_categories()
@@ -223,7 +449,7 @@ async def cb_del_product_do(callback: CallbackQuery):
         await edit(callback, "⚙️ <b>Admin panel</b>", kb.admin_menu_kb())
 
 
-# ---------------- Buyurtmalar ----------------
+# ================= BUYURTMALAR =================
 @router.callback_query(F.data == "adm:orders")
 async def cb_orders(callback: CallbackQuery):
     orders = await db.get_recent_orders()
@@ -234,7 +460,7 @@ async def cb_orders(callback: CallbackQuery):
     for o in orders:
         lines.append(
             f"#{o['id']} • {escape(o['full_name'] or '')} • {escape(o['phone'] or '')}\n"
-            f"    {fmt_price(o['total'])} • {kb.STATUS_LABELS.get(o['status'], o['status'])} • {o['created_at']}"
+            f"    {fmt_price(o['total'])} • {kb.status_label(o['status'])} • {o['created_at']}"
         )
     lines.append("\nBatafsil: /order <code>raqam</code>")
     await edit(callback, "\n".join(lines), kb.admin_menu_kb())
@@ -252,7 +478,7 @@ async def cmd_order(message: Message):
         await message.answer("Buyurtma topilmadi.")
         return
     items = await db.get_order_items(order_id)
-    await message.answer(kb.order_text(order, items, for_admin=True), reply_markup=kb.admin_order_kb(order_id))
+    await message.answer(kb.order_text(order, items, "uz", for_admin=True), reply_markup=kb.admin_order_kb(order_id))
     if order["latitude"] is not None:
         await message.answer_location(order["latitude"], order["longitude"])
 
@@ -261,7 +487,7 @@ async def cmd_order(message: Message):
 async def cb_order_status(callback: CallbackQuery, bot: Bot):
     _, order_id, status = callback.data.split(":")
     order_id = int(order_id)
-    if status not in kb.STATUS_LABELS:
+    if status not in kb.STATUSES:
         await callback.answer()
         return
     order = await db.get_order(order_id)
@@ -276,27 +502,33 @@ async def cb_order_status(callback: CallbackQuery, bot: Bot):
     items = await db.get_order_items(order_id)
     try:
         await callback.message.edit_text(
-            kb.order_text(order, items, for_admin=True), reply_markup=kb.admin_order_kb(order_id)
+            kb.order_text(order, items, "uz", for_admin=True), reply_markup=kb.admin_order_kb(order_id)
         )
     except TelegramBadRequest:
         pass
-    await callback.answer(f"Holat o'zgardi: {kb.STATUS_LABELS[status]}")
+    await callback.answer(f"Holat o'zgardi: {kb.status_label(status)}")
+    # Mijozga o'z tilida xabar
+    lang = order.get("lang") or await db.get_user_lang(order["user_id"]) or DEFAULT_LANG
     try:
         await bot.send_message(
-            order["user_id"],
-            f"🔔 Buyurtma #{order_id} holati o'zgardi: <b>{kb.STATUS_LABELS[status]}</b>",
+            order["user_id"], t("status_changed", lang, id=order_id, status=kb.status_label(status, lang))
         )
     except Exception as e:
         log.warning("Mijozga (%s) xabar yuborilmadi: %s", order["user_id"], e)
 
 
-# ---------------- Statistika ----------------
+# ================= STATISTIKA =================
 @router.callback_query(F.data == "adm:stats")
 async def cb_stats(callback: CallbackQuery):
     s = await db.get_stats()
+    users = await db.get_users_with_lang()
+    by_lang = {code: 0 for code in LANG_NAMES}
+    for u in users:
+        by_lang[u["lang"] or DEFAULT_LANG] = by_lang.get(u["lang"] or DEFAULT_LANG, 0) + 1
+    langs = "\n".join(f"    {LANG_NAMES[c]}: {n}" for c, n in by_lang.items())
     text = (
         "📊 <b>Statistika</b>\n\n"
-        f"👥 Foydalanuvchilar: <b>{s['users']}</b>\n"
+        f"👥 Foydalanuvchilar: <b>{s['users']}</b>\n{langs}\n"
         f"🛍 Faol mahsulotlar: <b>{s['products']}</b>\n"
         f"📦 Jami buyurtmalar: <b>{s['orders']}</b>\n"
         f"🆕 Yangi buyurtmalar: <b>{s['new_orders']}</b>\n"
@@ -305,35 +537,29 @@ async def cb_stats(callback: CallbackQuery):
     await edit(callback, text, kb.admin_menu_kb())
 
 
-# ---------------- Xabar yuborish (rassilka) ----------------
+# ================= XABAR YUBORISH =================
 @router.callback_query(F.data == "adm:broadcast")
 async def cb_broadcast(callback: CallbackQuery, state: FSMContext):
     await state.set_state(Broadcast.message)
     await callback.message.answer(
-        "Barcha foydalanuvchilarga yuboriladigan xabarni yuboring (matn, rasm, video — istalgan):",
-        reply_markup=kb.cancel_kb(),
+        "Barcha foydalanuvchilarga yuboriladigan xabarni yuboring (matn, rasm, video — istalgan).\n"
+        "<i>Xabar qanday yozilsa, barchaga shunday boradi. Aksiya haqida har kimga o'z tilida yuborish uchun "
+        "🔥 Aksiya → 📢 Mijozlarga e'lon qilish tugmasidan foydalaning.</i>",
+        reply_markup=kb.cancel_kb(DEFAULT_LANG),
     )
     await callback.answer()
 
 
 @router.message(Broadcast.message)
-async def broadcast_send(message: Message, state: FSMContext):
+async def broadcast_send(message: Message, state: FSMContext, lang: str):
     await state.clear()
     user_ids = await db.get_all_user_ids()
-    await message.answer(f"⏳ {len(user_ids)} ta foydalanuvchiga yuborilmoqda...", reply_markup=kb.main_menu(True))
+    await message.answer(f"⏳ {len(user_ids)} ta foydalanuvchiga yuborilmoqda...", reply_markup=kb.main_menu(lang, True))
     ok = fail = 0
     for uid in user_ids:
-        try:
-            await message.copy_to(uid)
+        if await send_safely(lambda: message.copy_to(uid)):
             ok += 1
-        except TelegramRetryAfter as e:
-            await asyncio.sleep(e.retry_after)
-            try:
-                await message.copy_to(uid)
-                ok += 1
-            except Exception:
-                fail += 1
-        except Exception:
+        else:
             fail += 1
         await asyncio.sleep(0.05)  # Telegram limitlaridan oshmaslik uchun
     await message.answer(f"✅ Yuborildi: {ok}\n❌ Yuborilmadi: {fail}")
