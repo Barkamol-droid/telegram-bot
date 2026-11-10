@@ -3,6 +3,7 @@
 Admin panel o'zbek tilida. Mijozlarga boradigan xabarlar esa har birining o'z tilida yuboriladi.
 """
 import asyncio
+import json
 import logging
 from datetime import datetime, timedelta
 from html import escape
@@ -23,7 +24,7 @@ from config import (
     payment_providers,
 )
 from i18n import DEFAULT_LANG, LANG_NAMES, all_texts, t
-from states import AddCategory, AddProduct, AdminForm, Broadcast, EditColors, EditMedia, PromoForm
+from states import AddCategory, AddProduct, AdminForm, Broadcast, EditColors, EditProduct, PromoForm
 
 log = logging.getLogger(__name__)
 
@@ -577,7 +578,8 @@ async def _ask_product_photo(message: Message, state: FSMContext):
     if colors:
         await message.answer("✅ Ranglar: " + escape(", ".join(color_mod.label(c, "uz") for c in colors)))
     await state.set_state(AddProduct.photo)
-    await message.answer("📸 Mahsulot rasmini yuboring:", reply_markup=kb.skip_cancel_kb(DEFAULT_LANG))
+    await state.update_data(photos=[], photo_items=None, photo_seq=0, photo_limit_warned=False)
+    await message.answer(PHOTOS_HELP, reply_markup=photos_kb())
 
 
 HAS, HAS_NOT = "bor ✅", "yo'q"
@@ -596,10 +598,70 @@ def _video_from(message: Message) -> tuple[str, int] | None:
     return None
 
 
+# ---------------- Rasmlarni yig'ish (bir nechta / albom) ----------------
+BTN_DONE = "✔️ Tayyor"
+PHOTOS_HELP = (
+    f"📸 Mahsulot <b>rasmlarini</b> yuboring — 1 tadan {db.MAX_PHOTOS} tagacha (albom qilib birdaniga ham bo'ladi).\n"
+    "Birinchi rasm — asosiy rasm bo'ladi.\n\n"
+    f"Hammasini yuborgach «{BTN_DONE}» ni bosing."
+)
+PHOTO_DEBOUNCE = 1.0  # albomdagi rasmlar kelib bo'lgach bitta xabar yuborish uchun kutish (soniya)
+_photo_locks: dict[int, asyncio.Lock] = {}
+
+
+def photos_kb() -> kb.ReplyKeyboardMarkup:
+    return kb.ReplyKeyboardMarkup(
+        keyboard=[[kb.KeyboardButton(text=BTN_DONE)], [kb.KeyboardButton(text=t("btn_skip", DEFAULT_LANG))],
+                  [kb.KeyboardButton(text=t("btn_cancel", DEFAULT_LANG))]],
+        resize_keyboard=True,
+    )
+
+
+async def collect_photo(message: Message, state: FSMContext):
+    """Rasmni holatga qo'shadi. Albom rasmlari bir vaqtda kelgani uchun qulf ishlatiladi,
+    javob esa oxirgi rasmdan keyin bir marta yuboriladi."""
+    lock = _photo_locks.setdefault(message.from_user.id, asyncio.Lock())
+    async with lock:
+        data = await state.get_data()
+        # [tartib, file_id]: avvaldan bor rasmlar manfiy tartib bilan oldinda turadi, yangilari — xabar raqami bo'yicha
+        # (albom rasmlari bir vaqtda qayta ishlanadi, shuning uchun kelish tartibiga emas, message_id ga tayanamiz)
+        items = data.get("photo_items")
+        if items is None:
+            items = [[i - len(data.get("photos", [])), f] for i, f in enumerate(data.get("photos", []))]
+        if len(items) >= db.MAX_PHOTOS:
+            if not data.get("photo_limit_warned"):
+                await state.update_data(photo_limit_warned=True)
+                await message.answer(f"❗️ Ko'pi bilan {db.MAX_PHOTOS} ta rasm. «{BTN_DONE}» ni bosing.")
+            return
+        items.append([message.message_id, message.photo[-1].file_id])
+        items.sort(key=lambda item: item[0])
+        photos = [f for _, f in items]
+        seq = data.get("photo_seq", 0) + 1
+        current_state = await state.get_state()
+        await state.update_data(photos=photos, photo_items=items, photo_seq=seq)
+    if PHOTO_DEBOUNCE:
+        await asyncio.sleep(PHOTO_DEBOUNCE)
+    data = await state.get_data()
+    if data.get("photo_seq") == seq and await state.get_state() == current_state:
+        await message.answer(
+            f"🖼 {len(data.get('photos', []))} ta rasm qabul qilindi. Yana yuboring yoki «{BTN_DONE}» ni bosing.",
+            reply_markup=photos_kb(),
+        )
+
+
 @router.message(AddProduct.photo, F.photo)
-@router.message(AddProduct.photo, F.text.in_(all_texts("btn_skip")))
 async def add_product_photo(message: Message, state: FSMContext):
-    await state.update_data(photo_id=message.photo[-1].file_id if message.photo else None)
+    await collect_photo(message, state)
+
+
+@router.message(AddProduct.photo, F.text.in_({BTN_DONE, *all_texts("btn_skip")}))
+async def add_product_photos_done(message: Message, state: FSMContext):
+    data = await state.get_data()
+    if message.text == BTN_DONE and not data.get("photos"):
+        await message.answer("Hali rasm yuborilmadi. Rasm yuboring yoki «O'tkazib yuborish» ni bosing.")
+        return
+    if is_skip(message.text):
+        await state.update_data(photos=[])
     await state.set_state(AddProduct.video)
     await message.answer(
         "🎬 Mahsulot videosini yuboring (ixtiyoriy).\n"
@@ -611,7 +673,7 @@ async def add_product_photo(message: Message, state: FSMContext):
 
 @router.message(AddProduct.photo)
 async def add_product_photo_invalid(message: Message):
-    await message.answer("Iltimos, rasm yuboring yoki «O'tkazib yuborish» tugmasini bosing.")
+    await message.answer(f"Iltimos, rasm yuboring, «{BTN_DONE}» yoki «O'tkazib yuborish» tugmasini bosing.")
 
 
 @router.message(AddProduct.video, F.video | F.document | F.text.in_(all_texts("btn_skip")))
@@ -621,19 +683,21 @@ async def add_product_video(message: Message, state: FSMContext, lang: str):
         await message.answer("Iltimos, video yuboring yoki «O'tkazib yuborish» tugmasini bosing.")
         return
     video_id, video_size = video or (None, None)
-    photo_id = (await state.get_data()).get("photo_id")
     data = await state.get_data()
+    photos = data.get("photos") or []
     await state.clear()
     if not await db.get_category(data["category_id"]):
         await message.answer("❗️ Kategoriya o'chirilgan. Qaytadan urinib ko'ring.", reply_markup=kb.main_menu(lang, True))
         return
     sizes = data.get("sizes") or []
     await db.add_product(
-        data["category_id"], data["name"], data["description"], data["price"], photo_id, sizes,
+        data["category_id"], data["name"], data["description"], data["price"], None, sizes,
         data.get("name_i18n"), data.get("description_i18n"), video_id, video_size,
-        color_mod.dump(data.get("colors") or []),
+        color_mod.dump(data.get("colors") or []), photos,
     )
     info = f"✅ Mahsulot qo'shildi: <b>{escape(data['name'])}</b> — {fmt_price(data['price'])}"
+    if photos:
+        info += f"\n🖼 Rasmlar: {len(photos)} ta"
     if video_id:
         info += "\n🎬 Video qo'shildi" + (VIDEO_TOO_BIG if video_size and video_size > MAX_WEB_MEDIA_BYTES else "")
     if sizes:
@@ -650,75 +714,354 @@ async def add_product_video_invalid(message: Message):
     await message.answer("Iltimos, video yuboring yoki «O'tkazib yuborish» tugmasini bosing.")
 
 
-# ---------------- Mavjud mahsulotning rasm/videosini o'zgartirish ----------------
+# ================= MAHSULOTNI TAHRIRLASH =================
+TR_FLAGS = {code: name.split()[0] for code, name in LANG_NAMES.items()}
+
+
+def parse_sizes(text: str) -> list[str] | None:
+    """«16, 16.5, 17» -> ["16", "16.5", "17"]; noto'g'ri bo'lsa None."""
+    sizes = []
+    for raw in text.replace(";", ",").split(","):
+        size = raw.strip().replace(":", "")
+        if size and size not in sizes:
+            sizes.append(size)
+    if not sizes or len(sizes) > 20 or any(len(x) > 8 for x in sizes):
+        return None
+    return sizes
+
+
+def _translations_lines(raw: str | None) -> str:
+    if not raw:
+        return ""
+    try:
+        data = json.loads(raw)
+    except ValueError:
+        return ""
+    return "".join(f"\n      {TR_FLAGS[c]} {escape(data[c])}" for c in ("ru", "tg", "kk") if data.get(c))
+
+
+async def product_edit_view(product_id: int):
+    p = await db.get_product(product_id)
+    if not p:
+        return None, None
+    category = await db.get_category(p["category_id"])
+    sizes = db.product_sizes(p)
+    colors = color_mod.product_colors(p)
+    photos = db.product_photos(p)
+    desc = p.get("description") or ""
+    text = (
+        f"✏️ <b>Mahsulotni tahrirlash</b> (#{p['id']})\n\n"
+        f"📂 Kategoriya: {escape(category['name']) if category else '—'}\n"
+        f"🏷 Nomi: <b>{escape(p['name'])}</b>{_translations_lines(p.get('name_i18n'))}\n"
+        f"📝 Tavsif: {escape(desc[:200]) + ('…' if len(desc) > 200 else '') if desc else HAS_NOT}"
+        f"{_translations_lines(p.get('description_i18n')) if desc else ''}\n"
+        f"💰 Narx: <b>{fmt_price(p['price'])}</b>\n"
+        f"📏 O'lchamlar: {escape(', '.join(sizes)) or HAS_NOT}\n"
+        f"🎨 Ranglar: {escape(', '.join(color_mod.name(c, 'uz') for c in colors)) or HAS_NOT}\n"
+        f"🖼 Rasmlar: {len(photos)} ta\n"
+        f"🎬 Video: {HAS if p.get('video_id') else HAS_NOT}"
+    )
+    pid = p["id"]
+    b = kb.InlineKeyboardBuilder()
+    b.button(text="✏️ Nomi", callback_data=f"pe:n:{pid}")
+    b.button(text="📝 Tavsif", callback_data=f"pe:d:{pid}")
+    b.button(text="💰 Narx", callback_data=f"pe:p:{pid}")
+    b.button(text="📏 O'lchamlar", callback_data=f"pe:s:{pid}")
+    b.button(text="🎨 Ranglar", callback_data=f"ecs:{pid}")
+    b.button(text="📂 Kategoriya", callback_data=f"pe:c:{pid}")
+    b.button(text="🖼 Rasmlar", callback_data=f"pe:ph:{pid}")
+    b.button(text="🎬 Video", callback_data=f"pe:v:{pid}")
+    b.button(text="🌐 Tarjimani tuzatish", callback_data=f"pe:t:{pid}")
+    b.button(text="👁 Mijoz ko'rinishi", callback_data=f"prod:{pid}")
+    b.button(text="🗑 O'chirish", callback_data=f"dp:{pid}")
+    b.button(text="⬅️ Orqaga", callback_data=f"mdc:{p['category_id']}")
+    b.adjust(2, 2, 2, 2, 1, 2, 1)
+    return text, b.as_markup()
+
+
+async def send_edit_view(message: Message, product_id: int, notice: str = ""):
+    text, markup = await product_edit_view(product_id)
+    if text:
+        await message.answer((notice + "\n\n" if notice else "") + text, reply_markup=markup)
+
+
 @router.callback_query(F.data == "adm:media")
-async def cb_media(callback: CallbackQuery):
+@router.callback_query(F.data == "adm:edit")
+async def cb_edit_choose_category(callback: CallbackQuery, state: FSMContext):
+    await state.clear()
     categories = await db.get_categories()
     if not categories:
         await callback.answer("Kategoriyalar yo'q", show_alert=True)
         return
-    await edit(callback, "🎬 Qaysi kategoriyadagi mahsulot?", kb.categories_kb(categories, prefix="mdc"))
+    await edit(callback, "✏️ Qaysi kategoriyadagi mahsulotni tahrirlaysiz?", kb.categories_kb(categories, prefix="mdc"))
 
 
 @router.callback_query(F.data.startswith("mdc:"))
-async def cb_media_category(callback: CallbackQuery):
+async def cb_edit_choose_product(callback: CallbackQuery, state: FSMContext):
+    await state.clear()
     products = await db.get_products(int(callback.data.split(":")[1]))
     if not products:
         await callback.answer("Bu kategoriyada mahsulot yo'q", show_alert=True)
         return
     markup = kb.InlineKeyboardBuilder()
     for p in products:
-        icons = ("🖼" if p["photo_id"] else "") + ("🎬" if p.get("video_id") else "")
-        markup.button(text=f"{p['name']} {icons}".strip(), callback_data=f"mdp:{p['id']}")
+        n = len(db.product_photos(p))
+        icons = (f"🖼{n}" if n else "") + (" 🎬" if p.get("video_id") else "")
+        markup.button(text=f"{p['name']} — {fmt_price(p['price'])} {icons}".strip(), callback_data=f"mdp:{p['id']}")
     markup.button(text="⬅️ Admin panel", callback_data="adm:menu")
     markup.adjust(1)
-    await edit(callback, "Mahsulotni tanlang (🖼 — rasm bor, 🎬 — video bor):", markup.as_markup())
+    await edit(callback, "Mahsulotni tanlang:", markup.as_markup())
 
 
 @router.callback_query(F.data.startswith("mdp:"))
-async def cb_media_product(callback: CallbackQuery, state: FSMContext):
-    product = await db.get_product(int(callback.data.split(":")[1]))
+async def cb_edit_product(callback: CallbackQuery, state: FSMContext):
+    await state.clear()
+    text, markup = await product_edit_view(int(callback.data.split(":")[1]))
+    if not text:
+        await callback.answer("Mahsulot topilmadi", show_alert=True)
+        return
+    await edit(callback, text, markup)
+
+
+EDIT_PROMPTS = {
+    "n": "✏️ Yangi <b>nomni</b> yozing (o'zbekcha — boshqa tillarga avtomatik tarjima qilinadi):",
+    "d": "📝 Yangi <b>tavsifni</b> yozing (o'zbekcha — avtomatik tarjima qilinadi).\nTavsifni o'chirish uchun «O'tkazib yuborish» ni bosing:",
+    "p": "💰 Yangi <b>narxni</b> yozing (faqat raqam, so'mda). Masalan: 1500000",
+    "s": "📏 Yangi <b>o'lchamlarni</b> vergul bilan yozing, masalan <code>16, 16.5, 17</code>.\n"
+         "O'lchamlarni o'chirish uchun «O'tkazib yuborish» ni bosing:",
+}
+
+
+@router.callback_query(F.data.startswith("pe:"))
+async def cb_edit_field(callback: CallbackQuery, state: FSMContext):
+    _, field, pid = callback.data.split(":")
+    product = await db.get_product(int(pid))
     if not product:
         await callback.answer("Mahsulot topilmadi", show_alert=True)
         return
-    await state.set_state(EditMedia.wait)
-    await state.update_data(media_product_id=product["id"])
-    buttons = [[kb.InlineKeyboardButton(text="🎨 Ranglarni o'zgartirish", callback_data=f"ecs:{product['id']}")]]
-    if product.get("video_id"):
-        buttons.append([kb.InlineKeyboardButton(text="🗑 Videoni o'chirish", callback_data=f"mdelv:{product['id']}")])
-    markup = kb.InlineKeyboardMarkup(inline_keyboard=buttons)
-    product_colors = color_mod.product_colors(product)
+    await callback.answer()
+    if field in EDIT_PROMPTS:
+        await state.set_state(EditProduct.text)
+        await state.update_data(edit_product_id=product["id"], edit_field=field)
+        markup = kb.skip_cancel_kb(DEFAULT_LANG) if field in ("d", "s") else kb.cancel_kb(DEFAULT_LANG)
+        await callback.message.answer(EDIT_PROMPTS[field], reply_markup=markup)
+    elif field == "c":
+        categories = await db.get_categories()
+        b = kb.InlineKeyboardBuilder()
+        for c in categories:
+            mark = "✅ " if c["id"] == product["category_id"] else ""
+            b.button(text=mark + c["name"], callback_data=f"pcat:{product['id']}:{c['id']}")
+        b.button(text="⬅️ Orqaga", callback_data=f"mdp:{product['id']}")
+        b.adjust(2)
+        await edit(callback, "📂 Yangi kategoriyani tanlang:", b.as_markup())
+    elif field == "ph":
+        photos = db.product_photos(product)
+        if photos:
+            try:
+                await callback.message.answer_media_group([kb.InputMediaPhoto(media=f) for f in photos])
+            except Exception as e:  # faqat ko'rsatish uchun — xato bo'lsa ham davom etamiz
+                log.warning("Rasmlar albomi ko'rsatilmadi: %s", e)
+        b = kb.InlineKeyboardBuilder()
+        if len(photos) < db.MAX_PHOTOS:
+            b.button(text="➕ Rasm qo'shish", callback_data=f"peph:add:{product['id']}")
+        b.button(text="🔄 Hammasini almashtirish", callback_data=f"peph:new:{product['id']}")
+        if photos:
+            b.button(text="🗑 Rasmlarni o'chirish", callback_data=f"peph:del:{product['id']}")
+        b.button(text="⬅️ Orqaga", callback_data=f"mdp:{product['id']}")
+        b.adjust(1)
+        await callback.message.answer(f"🖼 Hozir {len(photos)} ta rasm (birinchisi — asosiy). Nima qilamiz?",
+                                      reply_markup=b.as_markup())
+    elif field == "v":
+        await state.set_state(EditProduct.video)
+        await state.update_data(edit_product_id=product["id"])
+        markup = None
+        if product.get("video_id"):
+            markup = kb.InlineKeyboardMarkup(inline_keyboard=[[
+                kb.InlineKeyboardButton(text="🗑 Videoni o'chirish", callback_data=f"mdelv:{product['id']}")
+            ]])
+        await callback.message.answer(
+            f"🎬 Video: {HAS if product.get('video_id') else HAS_NOT}\n\nYangi videoni yuboring (20 MB gacha — saytda ham ko'rinadi):",
+            reply_markup=markup,
+        )
+        await callback.message.answer("👇", reply_markup=kb.cancel_kb(DEFAULT_LANG))
+    elif field == "t":
+        b = kb.InlineKeyboardBuilder()
+        for code in ("ru", "tg", "kk", "uz"):
+            b.button(text=f"{TR_FLAGS[code]} Nomi", callback_data=f"petr:{code}:n:{product['id']}")
+            if product.get("description"):
+                b.button(text=f"{TR_FLAGS[code]} Tavsif", callback_data=f"petr:{code}:d:{product['id']}")
+        b.button(text="⬅️ Orqaga", callback_data=f"mdp:{product['id']}")
+        b.adjust(2 if product.get("description") else 1)
+        await callback.message.answer("🌐 Qaysi tarjimani tuzatamiz?", reply_markup=b.as_markup())
+
+
+@router.callback_query(F.data.startswith("petr:"))
+async def cb_edit_translation(callback: CallbackQuery, state: FSMContext):
+    _, code, field, pid = callback.data.split(":")
+    product = await db.get_product(int(pid))
+    if not product or code not in LANG_NAMES:
+        await callback.answer("Mahsulot topilmadi", show_alert=True)
+        return
+    column = "name" if field == "n" else "description"
+    current = loc_value(product, column, code)
+    await state.set_state(EditProduct.text)
+    await state.update_data(edit_product_id=product["id"], edit_field=f"tr:{code}:{column}")
     await callback.message.answer(
-        f"<b>{escape(product['name'])}</b>\n\n"
-        f"🖼 Rasm: {HAS if product['photo_id'] else HAS_NOT}\n🎬 Video: {HAS if product.get('video_id') else HAS_NOT}\n"
-        f"🎨 Ranglar: {escape(', '.join(color_mod.name(c, 'uz') for c in product_colors)) or HAS_NOT}\n\n"
-        "Yangi <b>rasm</b> yoki <b>video</b> yuboring — eskisining o'rniga qo'yiladi.",
-        reply_markup=markup,
+        f"{LANG_NAMES[code]} — {'nomi' if field == 'n' else 'tavsifi'}:\n<code>{escape(current or '')}</code>\n\n"
+        "To'g'ri variantini yozing:",
+        reply_markup=kb.cancel_kb(DEFAULT_LANG),
     )
-    await callback.message.answer("👇", reply_markup=kb.cancel_kb(DEFAULT_LANG))
     await callback.answer()
 
 
-@router.message(EditMedia.wait, F.photo | F.video | F.document)
-async def media_upload(message: Message, state: FSMContext, lang: str):
-    product_id = (await state.get_data()).get("media_product_id")
-    video = _video_from(message)
-    if message.photo:
-        await db.set_product_photo(product_id, message.photo[-1].file_id)
-        info = "✅ Rasm yangilandi."
-    elif video:
-        await db.set_product_video(product_id, video[0], video[1])
-        info = "✅ Video yangilandi." + (VIDEO_TOO_BIG if video[1] > MAX_WEB_MEDIA_BYTES else "")
-    else:
-        await message.answer("Iltimos, rasm yoki video yuboring.")
+def loc_value(product: dict, column: str, code: str) -> str | None:
+    raw = product.get(f"{column}_i18n")
+    if raw:
+        try:
+            value = json.loads(raw).get(code)
+            if value:
+                return value
+        except ValueError:
+            pass
+    return product.get(column)
+
+
+@router.message(EditProduct.text, F.text)
+async def edit_text_value(message: Message, state: FSMContext, lang: str):
+    data = await state.get_data()
+    pid, field = data["edit_product_id"], data["edit_field"]
+    product = await db.get_product(pid)
+    if not product:
+        await state.clear()
+        await message.answer("Mahsulot topilmadi.", reply_markup=kb.main_menu(lang, True))
         return
+    text = message.text.strip()
+    notice = "✅ Saqlandi."
+    if field == "n":
+        name, name_i18n, status = await translate_input(message, text[:400])
+        await db.update_product(pid, name=name[:100], name_i18n=name_i18n)
+        notice = f"✅ Nomi yangilandi: <b>{escape(name)}</b>" + translate.preview(name_i18n, status)
+    elif field == "d":
+        if is_skip(text):
+            await db.update_product(pid, description=None, description_i18n=None)
+            notice = "✅ Tavsif o'chirildi."
+        else:
+            desc, desc_i18n, status = await translate_input(message, text[:3000])
+            await db.update_product(pid, description=desc[:900], description_i18n=desc_i18n)
+            notice = "✅ Tavsif yangilandi." + translate.preview(desc_i18n, status)
+    elif field == "p":
+        raw = text.replace(" ", "").replace(",", "")
+        if not raw.isdigit() or int(raw) <= 0:
+            await message.answer("❗️ Narx musbat butun son bo'lishi kerak. Masalan: 1500000")
+            return
+        await db.update_product(pid, price=int(raw))
+        notice = f"✅ Narx yangilandi: <b>{fmt_price(int(raw))}</b>"
+    elif field == "s":
+        if is_skip(text):
+            await db.update_product(pid, sizes=None)
+            notice = "✅ O'lchamlar o'chirildi."
+        else:
+            sizes = parse_sizes(text)
+            if sizes is None:
+                await message.answer("❗️ Noto'g'ri format. Masalan: 16, 16.5, 17")
+                return
+            await db.update_product(pid, sizes=",".join(sizes))
+            notice = f"✅ O'lchamlar: {escape(', '.join(sizes))}"
+    elif field.startswith("tr:"):
+        _, code, column = field.split(":")
+        try:
+            translations = json.loads(product.get(f"{column}_i18n") or "{}")
+        except ValueError:
+            translations = {}
+        base = product.get(column) or ""
+        translations = {c: translations.get(c) or base for c in LANG_NAMES}
+        translations[code] = text[:900]
+        fields = {f"{column}_i18n": json.dumps(translations, ensure_ascii=False)}
+        if code == "uz":
+            fields[column] = text[:100] if column == "name" else text[:900]
+        await db.update_product(pid, **fields)
+        notice = f"✅ {LANG_NAMES[code]} tarjimasi yangilandi: {escape(text)}"
     await state.clear()
-    await back_to_panel(message, lang, info)
+    await message.answer(notice, reply_markup=kb.main_menu(lang, True))
+    await send_edit_view(message, pid)
 
 
-@router.message(EditMedia.wait)
-async def media_upload_invalid(message: Message):
-    await message.answer("Iltimos, rasm yoki video yuboring (yoki «❌ Bekor qilish»).")
+@router.callback_query(F.data.startswith("pcat:"))
+async def cb_edit_category(callback: CallbackQuery):
+    _, pid, cid = callback.data.split(":")
+    if not await db.get_category(int(cid)):
+        await callback.answer("Kategoriya topilmadi", show_alert=True)
+        return
+    await db.update_product(int(pid), category_id=int(cid))
+    await callback.answer("✅ Kategoriya o'zgardi")
+    text, markup = await product_edit_view(int(pid))
+    await edit(callback, text, markup)
+
+
+@router.callback_query(F.data.startswith("peph:"))
+async def cb_edit_photos(callback: CallbackQuery, state: FSMContext, lang: str):
+    _, mode, pid = callback.data.split(":")
+    product = await db.get_product(int(pid))
+    if not product:
+        await callback.answer("Mahsulot topilmadi", show_alert=True)
+        return
+    await callback.answer()
+    if mode == "del":
+        await db.set_product_photos(product["id"], [])
+        await send_edit_view(callback.message, product["id"], "✅ Rasmlar o'chirildi.")
+        return
+    existing = db.product_photos(product) if mode == "add" else []
+    await state.set_state(EditProduct.photos)
+    await state.update_data(edit_product_id=product["id"], photos=existing, photo_items=None, photo_seq=0,
+                            photo_limit_warned=False)
+    free = db.MAX_PHOTOS - len(existing)
+    await callback.message.answer(
+        f"📸 Rasmlarni yuboring (yana {free} tagacha, albom qilib ham bo'ladi), so'ng «{BTN_DONE}» ni bosing.",
+        reply_markup=photos_kb(),
+    )
+
+
+@router.message(EditProduct.photos, F.photo)
+async def edit_photo_collect(message: Message, state: FSMContext):
+    await collect_photo(message, state)
+
+
+@router.message(EditProduct.photos, F.text.in_({BTN_DONE, *all_texts("btn_skip")}))
+async def edit_photos_done(message: Message, state: FSMContext, lang: str):
+    data = await state.get_data()
+    await state.clear()
+    pid = data["edit_product_id"]
+    if message.text == BTN_DONE:
+        await db.set_product_photos(pid, data.get("photos") or [])
+        notice = f"✅ Rasmlar saqlandi: {len(data.get('photos') or [])} ta"
+    else:
+        notice = "Rasmlar o'zgartirilmadi."
+    await message.answer(notice, reply_markup=kb.main_menu(lang, True))
+    await send_edit_view(message, pid)
+
+
+@router.message(EditProduct.photos)
+async def edit_photos_invalid(message: Message):
+    await message.answer(f"Iltimos, rasm yuboring yoki «{BTN_DONE}» ni bosing.")
+
+
+@router.message(EditProduct.video, F.video | F.document)
+async def edit_video_upload(message: Message, state: FSMContext, lang: str):
+    video = _video_from(message)
+    if not video:
+        await message.answer("Iltimos, video yuboring.")
+        return
+    pid = (await state.get_data())["edit_product_id"]
+    await state.clear()
+    await db.set_product_video(pid, video[0], video[1])
+    await message.answer("✅ Video yangilandi." + (VIDEO_TOO_BIG if video[1] > MAX_WEB_MEDIA_BYTES else ""),
+                         reply_markup=kb.main_menu(lang, True))
+    await send_edit_view(message, pid)
+
+
+@router.message(EditProduct.video)
+async def edit_video_invalid(message: Message):
+    await message.answer("Iltimos, video yuboring (yoki «❌ Bekor qilish»).")
 
 
 # ---------------- Mavjud mahsulot ranglarini o'zgartirish ----------------
@@ -771,15 +1114,18 @@ async def cb_edit_colors_done(callback: CallbackQuery, state: FSMContext, lang: 
         pass
     await callback.answer()
     names = ", ".join(color_mod.name(c, "uz") for c in data.get("colors") or []) or "yo'q"
-    await back_to_panel(callback.message, lang, f"✅ Ranglar saqlandi: {escape(names)}")
+    await callback.message.answer(f"✅ Ranglar saqlandi: {escape(names)}", reply_markup=kb.main_menu(lang, True))
+    await send_edit_view(callback.message, data["edit_product_id"])
 
 
 @router.callback_query(F.data.startswith("mdelv:"))
 async def cb_media_delete_video(callback: CallbackQuery, state: FSMContext, lang: str):
-    await db.set_product_video(int(callback.data.split(":")[1]), None)
+    pid = int(callback.data.split(":")[1])
+    await db.set_product_video(pid, None)
     await state.clear()
     await callback.answer("🗑 Video o'chirildi", show_alert=True)
-    await back_to_panel(callback.message, lang, "✅ Video o'chirildi.")
+    await callback.message.answer("✅ Video o'chirildi.", reply_markup=kb.main_menu(lang, True))
+    await send_edit_view(callback.message, pid)
 
 
 @router.callback_query(F.data == "adm:del_prod")

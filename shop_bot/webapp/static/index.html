@@ -81,6 +81,16 @@
   .media img, .media video { width: 100%; height: 100%; object-fit: contain; display: block; background: #000; }
   .media .placeholder { width: 100%; height: 100%; display: grid; place-items: center; font-size: 80px;
     background: linear-gradient(135deg, #f7efdc, #efe2c0); }
+  .slider { display: flex; width: 100%; height: 100%; overflow-x: auto; scroll-snap-type: x mandatory;
+    scrollbar-width: none; }
+  .slider::-webkit-scrollbar { display: none; }
+  .slide { flex: 0 0 100%; height: 100%; scroll-snap-align: center; position: relative; }
+  .dots { position: absolute; bottom: 12px; left: 0; right: 0; display: flex; justify-content: center; gap: 6px; pointer-events: none; }
+  .dots i { width: 7px; height: 7px; border-radius: 50%; background: rgba(255,255,255,.5); transition: .2s; }
+  .dots i.active { width: 18px; border-radius: 4px; background: #fff; }
+  .dots i.vid { background: rgba(255,255,255,.5); }
+  .counter { position: absolute; top: 12px; right: 12px; padding: 3px 9px; border-radius: 10px; background: rgba(0,0,0,.55);
+    color: #fff; font-size: 12px; font-weight: 600; }
   .tabs { position: absolute; bottom: 12px; left: 50%; transform: translateX(-50%); display: flex; gap: 6px;
     background: rgba(0,0,0,.45); border-radius: 20px; padding: 4px; }
   .tabs button { color: #fff; padding: 6px 14px; border-radius: 16px; font-size: 13px; font-weight: 600; }
@@ -215,7 +225,8 @@ setInterval(() => document.querySelectorAll("[data-timer]").forEach((el) => (el.
 function productCard(p) {
   const img = p.photo ? `<img loading="lazy" src="${p.photo}" alt="">` : (p.video ? "🎬" : "💎");
   return `<button class="card" data-id="${p.id}">
-    <div class="thumb">${img}${p.percent ? `<span class="tag">-${p.percent}%</span>` : ""}${p.video ? `<span class="tag video">▶ ${esc(T("video"))}</span>` : ""}
+    <div class="thumb">${img}${p.percent ? `<span class="tag">-${p.percent}%</span>` : ""}${p.video ? `<span class="tag video">▶ ${esc(T("video"))}</span>`
+      : p.photos.length > 1 ? `<span class="tag video">🖼 ${p.photos.length}</span>` : ""}
       ${p.colors.length ? `<span class="swatch-dots">${p.colors.slice(0, 5).map((c) => `<i style="${dotStyle(c)}"></i>`).join("")}</span>` : ""}</div>
     <div class="info"><div class="name">${esc(p.name)}</div>
       <div><div class="price">${money(p.price)}</div>${p.old_price ? `<div class="old">${money(p.old_price)}</div>` : ""}</div></div>
@@ -296,10 +307,15 @@ async function onMainButton() {
 function openProduct(id) {
   const p = S.data.products.find((x) => x.id === id); if (!p) return;
   S.product = p; S.size = ""; S.color = p.colors.length === 1 ? p.colors[0].key : ""; S.qty = 1; haptic();
-  const tabs = p.photo && p.video ? `<div class="tabs"><button class="active" data-media="photo">${esc(T("photo"))}</button>
-    <button data-media="video">▶ ${esc(T("video"))}</button></div>` : "";
-  const media = p.photo ? `<img src="${p.photo}" alt="">`
-    : p.video ? `<video src="${p.video}" controls playsinline loop preload="metadata"></video>` : `<div class="placeholder">💎</div>`;
+  // Galereya: barcha rasmlar + video (oxirgi slayd), barmoq bilan suriladi
+  const slides = [...p.photos.map((src) => `<div class="slide"><img src="${src}" alt="" loading="lazy"></div>`),
+    ...(p.video ? [`<div class="slide"><video src="${p.video}" controls playsinline loop preload="metadata"></video></div>`] : [])];
+  const total = slides.length;
+  const media = total ? `<div class="slider" id="slider">${slides.join("")}</div>${total > 1 ? `
+      <div class="counter" id="counter">1/${total}</div>
+      <div class="dots">${slides.map((_, i) => `<i class="${i === 0 ? "active" : ""}"></i>`).join("")}</div>` : ""}`
+    : `<div class="placeholder">💎</div>`;
+  const tabs = "";
   const el = pushScreen("product", `
     <div class="media" id="media">${media}${tabs}</div>
     <div class="panel">
@@ -316,14 +332,18 @@ function openProduct(id) {
       <div class="stepper"><button data-q="-1">−</button><span id="qty">1</span><button data-q="1">+</button></div>
     </div>
     ${p.description ? `<div class="panel"><h4>${esc(T("description"))}</h4><div class="desc">${esc(p.description)}</div></div>` : ""}`);
-  el.querySelectorAll("[data-media]").forEach((b) => b.onclick = () => {
-    el.querySelectorAll("[data-media]").forEach((x) => x.classList.toggle("active", x === b));
-    const box = $("#media", el), tabsEl = $(".tabs", el);
-    box.querySelectorAll("img,video").forEach((n) => n.remove());
-    box.insertAdjacentHTML("afterbegin", b.dataset.media === "video"
-      ? `<video src="${p.video}" controls autoplay playsinline loop></video>` : `<img src="${p.photo}" alt="">`);
-    box.appendChild(tabsEl); haptic();
-  });
+  const slider = $("#slider", el);
+  if (slider && total > 1) {
+    let last = 0;
+    slider.addEventListener("scroll", () => {
+      const i = Math.round(slider.scrollLeft / slider.clientWidth);
+      if (i === last) return;
+      last = i; haptic();
+      el.querySelectorAll(".dots i").forEach((d, n) => d.classList.toggle("active", n === i));
+      $("#counter", el).textContent = `${i + 1}/${total}`;
+      el.querySelectorAll("video").forEach((v) => v.pause());
+    }, { passive: true });
+  }
   el.querySelectorAll("[data-color]").forEach((b) => b.onclick = () => {
     S.color = b.dataset.color; haptic();
     el.querySelectorAll("[data-color]").forEach((x) => x.classList.toggle("active", x === b));

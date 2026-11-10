@@ -215,6 +215,7 @@ _EXTRA_COLUMNS = [
     ("products", "video_id", "TEXT"),
     ("products", "video_size", "INTEGER"),
     ("products", "colors", "TEXT"),
+    ("products", "photos", "TEXT"),
     ("order_items", "color", "TEXT NOT NULL DEFAULT ''"),
     ("orders", "subtotal", f"{_T['int']}"),
     ("orders", "bonus_used", "INTEGER NOT NULL DEFAULT 0"),
@@ -425,12 +426,13 @@ async def add_product(category_id: int, name: str, description: str | None,
                       price: int, photo_id: str | None, sizes: list[str] | None = None,
                       name_i18n: str | None = None, description_i18n: str | None = None,
                       video_id: str | None = None, video_size: int | None = None,
-                      colors_json: str | None = None) -> int:
+                      colors_json: str | None = None, photos: list[str] | None = None) -> int:
+    photos = (photos or ([photo_id] if photo_id else []))[:MAX_PHOTOS]
     return await _insert(
         "INSERT INTO products (category_id, name, name_i18n, description, description_i18n, price, photo_id, sizes, "
-        "video_id, video_size, colors) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-        (category_id, name, name_i18n, description, description_i18n, price, photo_id,
-         ",".join(sizes) if sizes else None, video_id, video_size, colors_json),
+        "video_id, video_size, colors, photos) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        (category_id, name, name_i18n, description, description_i18n, price, photos[0] if photos else None,
+         ",".join(sizes) if sizes else None, video_id, video_size, colors_json, json.dumps(photos) if photos else None),
     )
 
 
@@ -446,8 +448,44 @@ async def set_product_colors(product_id: int, colors_json: str | None):
     await _execute("UPDATE products SET colors = ? WHERE id = ?", (colors_json, product_id))
 
 
+MAX_PHOTOS = 10
+
+
+def product_photos(product: dict) -> list[str]:
+    """Mahsulot rasmlari (birinchisi — asosiy). Eski mahsulotlarda faqat photo_id bo'ladi."""
+    raw = product.get("photos")
+    if raw:
+        try:
+            photos = [str(p) for p in json.loads(raw) if p]
+            if photos:
+                return photos
+        except ValueError:
+            pass
+    return [product["photo_id"]] if product.get("photo_id") else []
+
+
+async def set_product_photos(product_id: int, photos: list[str]):
+    photos = photos[:MAX_PHOTOS]
+    await _execute(
+        "UPDATE products SET photos = ?, photo_id = ? WHERE id = ?",
+        (json.dumps(photos) if photos else None, photos[0] if photos else None, product_id),
+    )
+
+
 async def set_product_photo(product_id: int, photo_id: str | None):
-    await _execute("UPDATE products SET photo_id = ? WHERE id = ?", (photo_id, product_id))
+    await set_product_photos(product_id, [photo_id] if photo_id else [])
+
+
+_EDITABLE = {"name", "name_i18n", "description", "description_i18n", "price", "sizes", "category_id"}
+
+
+async def update_product(product_id: int, **fields):
+    """Mahsulot maydonlarini yangilash (faqat ruxsat etilganlari)."""
+    fields = {k: v for k, v in fields.items() if k in _EDITABLE}
+    if not fields:
+        return
+    sets = ", ".join(f"{k} = ?" for k in fields)
+    await _execute(f"UPDATE products SET {sets} WHERE id = ?", (*fields.values(), product_id))
 
 
 async def set_product_video(product_id: int, video_id: str | None, video_size: int | None = None):
@@ -457,7 +495,8 @@ async def set_product_video(product_id: int, video_id: str | None, video_size: i
 async def is_product_media(file_id: str) -> bool:
     """Fayl biror faol mahsulotning rasmi yoki videosimi (sayt orqali faqat shularni beramiz)."""
     row = await _fetchone(
-        "SELECT 1 AS ok FROM products WHERE is_active = 1 AND (photo_id = ? OR video_id = ?)", (file_id, file_id)
+        "SELECT 1 AS ok FROM products WHERE is_active = 1 AND (photo_id = ? OR video_id = ? OR photos LIKE ?)",
+        (file_id, file_id, f'%"{file_id}"%'),
     )
     return row is not None
 

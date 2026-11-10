@@ -48,3 +48,9 @@ class EditMedia(StatesGroup):
 
 class EditColors(StatesGroup):
     wait = State()
+
+
+class EditProduct(StatesGroup):
+    text = State()
+    photos = State()
+    video = State()

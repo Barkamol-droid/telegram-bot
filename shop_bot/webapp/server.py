@@ -75,7 +75,8 @@ def _product_json(p: dict, lang: str, promo: dict | None) -> dict:
             {"key": c, "name": color_mod.name(c, lang), "hex": color_mod.hex_color(c)}
             for c in color_mod.product_colors(p)
         ],
-        "photo": _media_url(p["photo_id"]),
+        "photo": _media_url((db.product_photos(p) or [None])[0]),
+        "photos": [_media_url(f) for f in db.product_photos(p)],
         "video": _media_url(p["video_id"]) if video_ok else None,
     }
 

@@ -2,6 +2,7 @@
 from html import escape
 
 from aiogram.types import (
+    InputMediaPhoto,
     WebAppInfo,
     InlineKeyboardButton,
     InlineKeyboardMarkup,
@@ -147,13 +148,16 @@ def open_shop_kb(lang: str, path: str = "") -> InlineKeyboardMarkup | None:
 
 def product_kb(product_id: int, category_id: int, lang: str, qty: int = 1,
                sizes: list[str] | None = None, size: str = "", has_video: bool = False,
-               colors: list[str] | None = None, ci: str = "") -> InlineKeyboardMarkup:
+               colors: list[str] | None = None, ci: str = "",
+               gallery: tuple[int, int] | None = None) -> InlineKeyboardMarkup:
     """Mahsulot kartasi: ranglar, o'lchamlar, miqdor, savatga qo'shish.
     ci — tanlangan rangning mahsulot ranglari ro'yxatidagi tartib raqami ("" — tanlanmagan).
     Callback formatlari (oxirgi qism — rang raqami):
       cl:<id>:<rang>:<miqdor>:<o'lcham>, sz:<id>:<o'lcham>:<miqdor>:<rang>,
       qty:<id>:<miqdor>:<o'lcham>:<rang>, add:<id>:<miqdor>:<o'lcham>:<rang>"""
     rows = []
+    if gallery and gallery[1] > 1:
+        rows.append(gallery_row(product_id, *gallery))
     if colors:
         color_buttons = [
             InlineKeyboardButton(
@@ -182,6 +186,26 @@ def product_kb(product_id: int, category_id: int, lang: str, qty: int = 1,
         InlineKeyboardButton(text=t("btn_cart", lang), callback_data="cart"),
     ])
     return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def gallery_row(product_id: int, index: int, total: int) -> list[InlineKeyboardButton]:
+    """⬅️ 2/5 ➡️ — mahsulot rasmlari orasida yurish (aylana bo'ylab)."""
+    return [
+        InlineKeyboardButton(text="⬅️", callback_data=f"pg:{product_id}:{(index - 1) % total}"),
+        InlineKeyboardButton(text=f"🖼 {index + 1}/{total}", callback_data="noop"),
+        InlineKeyboardButton(text="➡️", callback_data=f"pg:{product_id}:{(index + 1) % total}"),
+    ]
+
+
+def gallery_state(markup: InlineKeyboardMarkup | None) -> tuple[int, int] | None:
+    """Joriy tugmalardan galereya holatini o'qish (masalan «🖼 2/5» -> (1, 5))."""
+    for row in (markup.inline_keyboard if markup else []):
+        for button in row:
+            if button.callback_data == "noop" and button.text.startswith("🖼 ") and "/" in button.text:
+                current, total = button.text[2:].split("/")
+                if current.isdigit() and total.isdigit():
+                    return int(current) - 1, int(total)
+    return None
 
 
 def price_line(final: int, old: int | None, percent: int | None, lang: str) -> str:
@@ -405,7 +429,7 @@ def admin_menu_kb() -> InlineKeyboardMarkup:
     kb.button(text="📊 Statistika", callback_data="adm:stats")
     kb.button(text="📢 Xabar yuborish", callback_data="adm:broadcast")
     kb.button(text="👥 Adminlar", callback_data="adm:admins")
-    kb.button(text="🎬 Rasm / video", callback_data="adm:media")
+    kb.button(text="✏️ Mahsulotni tahrirlash", callback_data="adm:edit")
     kb.adjust(1, 2, 2, 2, 2, 1)
     return kb.as_markup()
 

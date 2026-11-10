@@ -5,7 +5,7 @@ from html import escape
 from aiogram import Bot, F, Router
 from aiogram.exceptions import TelegramBadRequest
 from aiogram.fsm.context import FSMContext
-from aiogram.types import CallbackQuery, InlineKeyboardMarkup, Message
+from aiogram.types import CallbackQuery, InlineKeyboardMarkup, InputMediaPhoto, Message
 
 import colors as color_mod
 import db
@@ -106,22 +106,54 @@ async def cb_product(callback: CallbackQuery, lang: str):
     sizes = product_sizes(product)
     colors = color_mod.product_colors(product)
     text = kb.product_text(product, lang, promo, sizes, colors)
-    # Rasm bo'lsa — rasm kartasi (+ «Videoni ko'rish» tugmasi); faqat video bo'lsa — video kartasi
-    has_video_button = bool(product.get("video_id") and product["photo_id"])
+    # Rasm bo'lsa — rasm kartasi (bir nechta bo'lsa ⬅️ ➡️ galereya, video bo'lsa «Videoni ko'rish» tugmasi);
+    # faqat video bo'lsa — video kartasi
+    photos = db.product_photos(product)
+    has_video_button = bool(product.get("video_id") and photos)
     markup = kb.product_kb(product["id"], product["category_id"], lang, sizes=sizes, has_video=has_video_button,
-                           colors=colors)
-    if product["photo_id"] or product.get("video_id"):
+                           colors=colors, gallery=(0, len(photos)) if photos else None)
+    if photos or product.get("video_id"):
         try:
             await callback.message.delete()
         except TelegramBadRequest:
             pass
-        if product["photo_id"]:
-            await callback.message.answer_photo(product["photo_id"], caption=text, reply_markup=markup)
+        if photos:
+            await callback.message.answer_photo(photos[0], caption=text, reply_markup=markup)
         else:
             await callback.message.answer_video(product["video_id"], caption=text, reply_markup=markup)
         await callback.answer()
     else:
         await show(callback, text, markup)
+
+
+@router.callback_query(F.data.startswith("pg:"))
+async def cb_gallery(callback: CallbackQuery, lang: str):
+    """Galereya: ⬅️ ➡️ bosilganda rasm almashadi, tanlangan rang/o'lcham/miqdor saqlanadi."""
+    _, product_id, index = callback.data.split(":")
+    product = await db.get_product(int(product_id))
+    photos = db.product_photos(product) if product else []
+    if not photos:
+        await callback.answer(t("not_found_product", lang), show_alert=True)
+        return
+    index = int(index) % len(photos)
+    rows = [list(row) for row in (callback.message.reply_markup.inline_keyboard if callback.message.reply_markup else [])]
+    new_row = kb.gallery_row(product["id"], index, len(photos))
+    for i, row in enumerate(rows):
+        if any((b.callback_data or "").startswith("pg:") for b in row):
+            rows[i] = new_row
+            break
+    else:
+        rows.insert(0, new_row)
+    promo = await db.get_promo()
+    caption = kb.product_text(product, lang, promo, product_sizes(product), color_mod.product_colors(product))
+    try:
+        await callback.message.edit_media(
+            media=InputMediaPhoto(media=photos[index], caption=caption),
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=rows),
+        )
+    except TelegramBadRequest:
+        pass
+    await callback.answer()
 
 
 @router.callback_query(F.data.startswith("pvid:"))
@@ -154,11 +186,15 @@ async def _update_card(callback: CallbackQuery, lang: str, product_id: int, qty:
         size = ""
     if not _color_by_index(colors, ci):
         ci = ""
-    has_video_button = bool(product.get("video_id") and product["photo_id"])
+    photos = db.product_photos(product)
+    has_video_button = bool(product.get("video_id") and photos)
+    gallery = kb.gallery_state(callback.message.reply_markup) if len(photos) > 1 else None
+    if gallery and gallery[1] != len(photos):
+        gallery = (0, len(photos))
     try:
         await callback.message.edit_reply_markup(
             reply_markup=kb.product_kb(product_id, product["category_id"], lang, qty, sizes, size, has_video_button,
-                                       colors, ci)
+                                       colors, ci, gallery)
         )
     except TelegramBadRequest:
         pass

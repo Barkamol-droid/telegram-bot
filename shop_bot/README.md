@@ -9,6 +9,7 @@ aksiyalar (masalan 11.11), uzuk o'lchamini tanlash, savat, buyurtma berish va ad
 - 🛍 **Sayt ko'rinishi (Telegram Mini App)**: bot ichida ochiladigan do'kon — mahsulot kartochkalari, qidiruv,
   kategoriyalar, rasm va 🎬 video, o'lcham tanlash, savat, brilliantlar, buyurtma berish. Telegram mavzusiga
   (yorug'/qorong'i) moslashadi, 4 tilda. Chat menyusidagi «🛍 Do'kon» tugmasi yoki «🛍 Katalog» orqali ochiladi
+- 🖼 Bir nechta rasm (10 tagacha): botda ⬅️ ➡️ bilan, saytda barmoq bilan suriladigan galereya
 - 🎬 Mahsulot videosi: bot chatida ham («🎬 Videoni ko'rish»), saytda ham
 - 🌐 Til tanlash: birinchi /start da va «🌐 Til» tugmasi orqali (o'zbek, rus, tojik, qozoq)
 - 🔥 Aksiya: chegirmali narxlar (eski narx chizilgan), tugashigacha qolgan vaqt, savatda «Tejadingiz»
@@ -32,8 +33,11 @@ aksiyalar (masalan 11.11), uzuk o'lchamini tanlash, savat, buyurtma berish va ad
   «📢 Mijozlarga e'lon qilish» — har bir mijozga o'z tilida xabar; «👁 Mijozlar qanday ko'radi» — 4 tilda ko'rish
 - 💎 Brilliantlar: buyurtma «🚚 Yetkazildi» qilinganda mijozga avtomatik beriladi; bekor qilinsa,
   ishlatilganlari qaytariladi. `/bonus ID SON` — mijozga brilliant sovg'a qilish. Statistikada jami brilliantlar
+- ✏️ **Mahsulotni tahrirlash**: nom, tavsif, narx, o'lchamlar, ranglar, kategoriya, rasmlar (qo'shish /
+  almashtirish / o'chirish), video va tarjimalarni (har bir tilni alohida) mahsulotni o'chirmasdan o'zgartirish
+- 🖼 Mahsulot qo'shishda bir nechta rasm yoki albom yuborish, so'ng «✔️ Tayyor»
 - 🎨 Ranglar: mahsulot qo'shishda tayyor ranglarni belgilash yoki o'z rangini yozish (`Yashil | Зелёный | Сабз | Жасыл`);
-  mavjud mahsulot ranglari — «🎬 Rasm / video» → mahsulot → «🎨 Ranglarni o'zgartirish»
+  mavjud mahsulot ranglari — «✏️ Mahsulotni tahrirlash» → mahsulot → «🎨 Ranglar»
 - 🎬 Rasm / video: mahsulot qo'shishda video yuklash va mavjud mahsulotning rasm/videosini almashtirish
 - 👥 Adminlar: bosh admin yangi adminni telefon kontaktlaridan tanlab (yoki ID orqali) qo'shadi va o'chiradi.
   Qo'shilgan adminlar buyurtmalarni oladi, mahsulot va aksiyalarni boshqaradi
