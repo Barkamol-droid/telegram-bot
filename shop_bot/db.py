@@ -1,4 +1,5 @@
 """SQLite ma'lumotlar bazasi bilan ishlash (aiosqlite)."""
+import os
 from datetime import datetime
 
 import aiosqlite
@@ -94,6 +95,8 @@ async def _columns(db, table: str) -> set[str]:
 
 
 async def init_db():
+    db_dir = os.path.dirname(os.path.abspath(DB_PATH))
+    os.makedirs(db_dir, exist_ok=True)
     async with _connect() as db:
         await db.executescript(SCHEMA)
         # Eski bazani yangi tuzilishga moslash (migratsiya)
