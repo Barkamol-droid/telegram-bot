@@ -9,13 +9,15 @@ from aiogram.types import (
 )
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
-from config import fmt_price
+from config import SHOP_NAME, channel_url, fmt_price
 
 # ---- Asosiy menyu tugmalari matni ----
 BTN_CATALOG = "🛍 Katalog"
 BTN_CART = "🛒 Savat"
 BTN_ORDERS = "📦 Buyurtmalarim"
 BTN_CONTACT = "☎️ Aloqa"
+BTN_CHANNEL = "📢 Kanalimiz"
+BTN_ABOUT = "💎 Biz haqimizda"
 BTN_ADMIN = "⚙️ Admin panel"
 BTN_CANCEL = "❌ Bekor qilish"
 BTN_SKIP = "⏭ O'tkazib yuborish"
@@ -31,8 +33,10 @@ STATUS_LABELS = {
 def main_menu(admin: bool = False) -> ReplyKeyboardMarkup:
     rows = [
         [KeyboardButton(text=BTN_CATALOG), KeyboardButton(text=BTN_CART)],
-        [KeyboardButton(text=BTN_ORDERS), KeyboardButton(text=BTN_CONTACT)],
+        [KeyboardButton(text=BTN_ORDERS), KeyboardButton(text=BTN_ABOUT)],
+        [KeyboardButton(text=BTN_CHANNEL) if channel_url() else None, KeyboardButton(text=BTN_CONTACT)],
     ]
+    rows[-1] = [b for b in rows[-1] if b]
     if admin:
         rows.append([KeyboardButton(text=BTN_ADMIN)])
     return ReplyKeyboardMarkup(keyboard=rows, resize_keyboard=True)
@@ -70,6 +74,23 @@ def location_kb() -> ReplyKeyboardMarkup:
 
 
 # ---------------- Katalog ----------------
+def channel_kb() -> InlineKeyboardMarkup | None:
+    url = channel_url()
+    if not url:
+        return None
+    return InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="📢 Kanalga o'tish", url=url)]])
+
+
+def welcome_text(first_name: str) -> str:
+    return (
+        f"Assalomu alaykum, <b>{escape(first_name)}</b>! 👋\n\n"
+        f"💎 <b>{escape(SHOP_NAME)}</b> zargarlik do'koniga xush kelibsiz!\n\n"
+        "Bu yerda siz uzuk, sirg'a, zanjir, bilakuzuk va boshqa nafis taqinchoqlarni "
+        "ko'rib, bir necha bosishda buyurtma berishingiz mumkin.\n\n"
+        "👇 Boshlash uchun «🛍 Katalog» tugmasini bosing."
+    )
+
+
 def categories_kb(categories, prefix: str = "cat") -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
     for c in categories:
@@ -87,34 +108,54 @@ def products_kb(products) -> InlineKeyboardMarkup:
     return kb.as_markup()
 
 
-def product_kb(product_id: int, category_id: int, qty: int = 1) -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [
-            InlineKeyboardButton(text="➖", callback_data=f"qty:{product_id}:{qty - 1}"),
-            InlineKeyboardButton(text=str(qty), callback_data="noop"),
-            InlineKeyboardButton(text="➕", callback_data=f"qty:{product_id}:{qty + 1}"),
-        ],
-        [InlineKeyboardButton(text="🛒 Savatga qo'shish", callback_data=f"add:{product_id}:{qty}")],
-        [
-            InlineKeyboardButton(text="⬅️ Orqaga", callback_data=f"cat:{category_id}"),
-            InlineKeyboardButton(text="🛒 Savat", callback_data="cart"),
-        ],
+def product_kb(product_id: int, category_id: int, qty: int = 1,
+               sizes: list[str] | None = None, size: str = "") -> InlineKeyboardMarkup:
+    """Mahsulot kartasi. sizes bo'lsa — o'lcham tanlash tugmalari chiqadi.
+    Callback formatlari: sz:<id>:<o'lcham>:<miqdor>, qty:<id>:<miqdor>:<o'lcham>, add:<id>:<miqdor>:<o'lcham>"""
+    rows = []
+    if sizes:
+        size_buttons = [
+            InlineKeyboardButton(
+                text=f"✅ {s}" if s == size else s,
+                callback_data=f"sz:{product_id}:{s}:{qty}",
+            )
+            for s in sizes
+        ]
+        rows += [size_buttons[i:i + 4] for i in range(0, len(size_buttons), 4)]
+    rows.append([
+        InlineKeyboardButton(text="➖", callback_data=f"qty:{product_id}:{qty - 1}:{size}"),
+        InlineKeyboardButton(text=f"{qty} dona", callback_data="noop"),
+        InlineKeyboardButton(text="➕", callback_data=f"qty:{product_id}:{qty + 1}:{size}"),
     ])
+    rows.append([InlineKeyboardButton(text="🛒 Savatga qo'shish", callback_data=f"add:{product_id}:{qty}:{size}")])
+    rows.append([
+        InlineKeyboardButton(text="⬅️ Orqaga", callback_data=f"cat:{category_id}"),
+        InlineKeyboardButton(text="🛒 Savat", callback_data="cart"),
+    ])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
-def product_text(p) -> str:
-    text = f"<b>{escape(p['name'])}</b>\n\n"
+def product_text(p, sizes: list[str] | None = None) -> str:
+    text = f"💎 <b>{escape(p['name'])}</b>\n\n"
     if p.get("description"):
         text += f"{escape(p['description'])}\n\n"
+    if sizes:
+        text += f"📏 O'lchamlar: {escape(', '.join(sizes))}\n"
+        text += "👇 Kerakli o'lchamni tanlang\n\n"
     text += f"💰 Narxi: <b>{fmt_price(p['price'])}</b>"
     return text
+
+
+def size_label(size: str | None) -> str:
+    return f" (o'lcham: {escape(size)})" if size else ""
 
 
 # ---------------- Savat ----------------
 def cart_kb(items) -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
     for i in items:
-        kb.button(text=f"❌ {i['name']}", callback_data=f"cart_del:{i['product_id']}")
+        label = f"{i['name']} ({i['size']})" if i["size"] else i["name"]
+        kb.button(text=f"❌ {label}", callback_data=f"cart_del:{i['product_id']}:{i['size']}")
     kb.button(text="🧹 Savatni tozalash", callback_data="cart_clear")
     kb.button(text="✅ Buyurtma berish", callback_data="checkout")
     kb.adjust(1)
@@ -125,7 +166,7 @@ def cart_text(items) -> str:
     lines = ["🛒 <b>Savatingiz:</b>\n"]
     for n, i in enumerate(items, 1):
         lines.append(
-            f"{n}. {escape(i['name'])}\n"
+            f"{n}. {escape(i['name'])}{size_label(i['size'])}\n"
             f"    {i['qty']} x {fmt_price(i['price'])} = <b>{fmt_price(i['subtotal'])}</b>"
         )
     total = sum(i["subtotal"] for i in items)
@@ -150,10 +191,12 @@ def order_text(order, items, for_admin: bool = False) -> str:
         lines.append(f"📍 {escape(order['address'])}")
     elif order.get("latitude") is not None:
         lines.append("📍 Joylashuv yuborilgan")
+    if order.get("comment"):
+        lines.append(f"💬 Izoh: {escape(order['comment'])}")
     lines.append(f"🕒 {order['created_at']}")
     lines.append("")
     for i in items:
-        lines.append(f"• {escape(i['name'])} — {i['qty']} x {fmt_price(i['price'])}")
+        lines.append(f"• {escape(i['name'])}{size_label(i.get('size'))} — {i['qty']} x {fmt_price(i['price'])}")
     lines.append(f"\n💰 Jami: <b>{fmt_price(order['total'])}</b>")
     lines.append(f"📌 Holati: {STATUS_LABELS.get(order['status'], order['status'])}")
     return "\n".join(lines)

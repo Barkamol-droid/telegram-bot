@@ -112,7 +112,11 @@ async def cb_add_product_category(callback: CallbackQuery, state: FSMContext):
 async def add_product_name(message: Message, state: FSMContext):
     await state.update_data(name=message.text.strip()[:100])
     await state.set_state(AddProduct.description)
-    await message.answer("Mahsulot tavsifini kiriting:", reply_markup=kb.skip_cancel_kb())
+    await message.answer(
+        "Mahsulot tavsifini kiriting (material, proba, tosh, vazn va h.k.).\n"
+        "Masalan: <i>585 proba oq oltin, brilliant 0.25 ct, vazni 2.1 g</i>",
+        reply_markup=kb.skip_cancel_kb(),
+    )
 
 
 @router.message(AddProduct.description, F.text)
@@ -130,8 +134,35 @@ async def add_product_price(message: Message, state: FSMContext):
         await message.answer("❗️ Narx musbat butun son bo'lishi kerak. Masalan: 25000")
         return
     await state.update_data(price=int(raw))
+    await state.set_state(AddProduct.sizes)
+    await message.answer(
+        "📏 Mahsulot o'lchamlarini vergul bilan kiriting.\n"
+        "Masalan, uzuk uchun: <code>16, 16.5, 17, 17.5, 18, 18.5</code>\n"
+        "Zanjir uchun: <code>40, 45, 50</code>\n\n"
+        "O'lcham kerak bo'lmasa (sirg'a, kulon va h.k.) — «O'tkazib yuborish» ni bosing.",
+        reply_markup=kb.skip_cancel_kb(),
+    )
+
+
+@router.message(AddProduct.sizes, F.text)
+async def add_product_sizes(message: Message, state: FSMContext):
+    if message.text == kb.BTN_SKIP:
+        sizes = []
+    else:
+        sizes = []
+        for raw in message.text.replace(";", ",").split(","):
+            size = raw.strip().replace(":", "")
+            if size and size not in sizes:
+                sizes.append(size)
+        if not sizes or len(sizes) > 20 or any(len(x) > 8 for x in sizes):
+            await message.answer(
+                "❗️ Noto'g'ri format. O'lchamlarni vergul bilan yozing (ko'pi bilan 20 ta, "
+                "har biri 8 belgigacha). Masalan: 16, 16.5, 17"
+            )
+            return
+    await state.update_data(sizes=sizes)
     await state.set_state(AddProduct.photo)
-    await message.answer("Mahsulot rasmini yuboring:", reply_markup=kb.skip_cancel_kb())
+    await message.answer("📸 Mahsulot rasmini yuboring:", reply_markup=kb.skip_cancel_kb())
 
 
 @router.message(AddProduct.photo, F.photo)
@@ -143,9 +174,11 @@ async def add_product_photo(message: Message, state: FSMContext):
     if not await db.get_category(data["category_id"]):
         await message.answer("❗️ Kategoriya o'chirilgan. Qaytadan urinib ko'ring.", reply_markup=kb.main_menu(True))
         return
-    await db.add_product(data["category_id"], data["name"], data["description"], data["price"], photo_id)
+    sizes = data.get("sizes") or []
+    await db.add_product(data["category_id"], data["name"], data["description"], data["price"], photo_id, sizes)
+    sizes_info = f"\n📏 O'lchamlar: {escape(', '.join(sizes))}" if sizes else ""
     await message.answer(
-        f"✅ Mahsulot qo'shildi: <b>{escape(data['name'])}</b> — {fmt_price(data['price'])}",
+        f"✅ Mahsulot qo'shildi: <b>{escape(data['name'])}</b> — {fmt_price(data['price'])}{sizes_info}",
         reply_markup=kb.main_menu(True),
     )
     await message.answer("⚙️ <b>Admin panel</b>", reply_markup=kb.admin_menu_kb())

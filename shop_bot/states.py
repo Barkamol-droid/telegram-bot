@@ -5,6 +5,7 @@ class OrderForm(StatesGroup):
     name = State()
     phone = State()
     address = State()
+    comment = State()
     confirm = State()
 
 
@@ -16,6 +17,7 @@ class AddProduct(StatesGroup):
     name = State()
     description = State()
     price = State()
+    sizes = State()
     photo = State()
 
 

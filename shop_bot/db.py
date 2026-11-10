@@ -3,7 +3,7 @@ from datetime import datetime
 
 import aiosqlite
 
-from config import DB_PATH
+from config import DB_PATH, DEFAULT_CATEGORIES
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS users (
@@ -23,13 +23,15 @@ CREATE TABLE IF NOT EXISTS products (
     description  TEXT,
     price        INTEGER NOT NULL,
     photo_id     TEXT,
+    sizes        TEXT,
     is_active    INTEGER NOT NULL DEFAULT 1
 );
 CREATE TABLE IF NOT EXISTS cart (
     user_id     INTEGER NOT NULL,
     product_id  INTEGER NOT NULL,
+    size        TEXT NOT NULL DEFAULT '',
     qty         INTEGER NOT NULL,
-    PRIMARY KEY (user_id, product_id)
+    PRIMARY KEY (user_id, product_id, size)
 );
 CREATE TABLE IF NOT EXISTS orders (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -39,6 +41,7 @@ CREATE TABLE IF NOT EXISTS orders (
     address     TEXT,
     latitude    REAL,
     longitude   REAL,
+    comment     TEXT,
     total       INTEGER NOT NULL,
     status      TEXT NOT NULL DEFAULT 'new',
     created_at  TEXT
@@ -47,6 +50,7 @@ CREATE TABLE IF NOT EXISTS order_items (
     order_id    INTEGER NOT NULL,
     product_id  INTEGER NOT NULL,
     name        TEXT NOT NULL,
+    size        TEXT NOT NULL DEFAULT '',
     price       INTEGER NOT NULL,
     qty         INTEGER NOT NULL
 );
@@ -84,9 +88,32 @@ async def _execute(query: str, params=()) -> int:
         return cur.lastrowid
 
 
+async def _columns(db, table: str) -> set[str]:
+    async with db.execute(f"PRAGMA table_info({table})") as cur:
+        return {row[1] for row in await cur.fetchall()}
+
+
 async def init_db():
     async with _connect() as db:
         await db.executescript(SCHEMA)
+        # Eski bazani yangi tuzilishga moslash (migratsiya)
+        if "sizes" not in await _columns(db, "products"):
+            await db.execute("ALTER TABLE products ADD COLUMN sizes TEXT")
+        if "comment" not in await _columns(db, "orders"):
+            await db.execute("ALTER TABLE orders ADD COLUMN comment TEXT")
+        if "size" not in await _columns(db, "order_items"):
+            await db.execute("ALTER TABLE order_items ADD COLUMN size TEXT NOT NULL DEFAULT ''")
+        if "size" not in await _columns(db, "cart"):
+            # Savat vaqtinchalik ma'lumot — qayta yaratish xavfsiz
+            await db.execute("DROP TABLE cart")
+            await db.executescript(SCHEMA)
+        # Birinchi ishga tushirishda standart kategoriyalarni yaratish
+        async with db.execute("SELECT 1 FROM sqlite_sequence WHERE name = 'categories'") as cur:
+            categories_ever_created = await cur.fetchone()
+        if not categories_ever_created:
+            await db.executemany(
+                "INSERT INTO categories (name) VALUES (?)", [(c,) for c in DEFAULT_CATEGORIES]
+            )
         await db.commit()
 
 
@@ -142,11 +169,15 @@ async def get_product(product_id: int):
     )
 
 
+def product_sizes(product) -> list[str]:
+    return [x for x in (product.get("sizes") or "").split(",") if x]
+
+
 async def add_product(category_id: int, name: str, description: str | None,
-                      price: int, photo_id: str | None) -> int:
+                      price: int, photo_id: str | None, sizes: list[str] | None = None) -> int:
     return await _execute(
-        "INSERT INTO products (category_id, name, description, price, photo_id) VALUES (?, ?, ?, ?, ?)",
-        (category_id, name, description, price, photo_id),
+        "INSERT INTO products (category_id, name, description, price, photo_id, sizes) VALUES (?, ?, ?, ?, ?, ?)",
+        (category_id, name, description, price, photo_id, ",".join(sizes) if sizes else None),
     )
 
 
@@ -158,25 +189,27 @@ async def delete_product(product_id: int):
 
 
 # ---------------- Savat ----------------
-async def cart_add(user_id: int, product_id: int, qty: int):
+async def cart_add(user_id: int, product_id: int, qty: int, size: str = ""):
     await _execute(
-        "INSERT INTO cart (user_id, product_id, qty) VALUES (?, ?, ?) "
-        "ON CONFLICT(user_id, product_id) DO UPDATE SET qty = MIN(qty + excluded.qty, 99)",
-        (user_id, product_id, qty),
+        "INSERT INTO cart (user_id, product_id, size, qty) VALUES (?, ?, ?, ?) "
+        "ON CONFLICT(user_id, product_id, size) DO UPDATE SET qty = MIN(qty + excluded.qty, 99)",
+        (user_id, product_id, size, qty),
     )
 
 
 async def cart_get(user_id: int):
     return await _fetchall(
-        "SELECT c.product_id, c.qty, p.name, p.price, (c.qty * p.price) AS subtotal "
+        "SELECT c.product_id, c.size, c.qty, p.name, p.price, (c.qty * p.price) AS subtotal "
         "FROM cart c JOIN products p ON p.id = c.product_id "
-        "WHERE c.user_id = ? AND p.is_active = 1 ORDER BY p.name",
+        "WHERE c.user_id = ? AND p.is_active = 1 ORDER BY p.name, c.size",
         (user_id,),
     )
 
 
-async def cart_remove(user_id: int, product_id: int):
-    await _execute("DELETE FROM cart WHERE user_id = ? AND product_id = ?", (user_id, product_id))
+async def cart_remove(user_id: int, product_id: int, size: str = ""):
+    await _execute(
+        "DELETE FROM cart WHERE user_id = ? AND product_id = ? AND size = ?", (user_id, product_id, size)
+    )
 
 
 async def cart_clear(user_id: int):
@@ -185,7 +218,8 @@ async def cart_clear(user_id: int):
 
 # ---------------- Buyurtmalar ----------------
 async def create_order(user_id: int, full_name: str, phone: str, address: str | None,
-                       latitude: float | None = None, longitude: float | None = None) -> int | None:
+                       latitude: float | None = None, longitude: float | None = None,
+                       comment: str | None = None) -> int | None:
     """Savatdagi mahsulotlardan buyurtma yaratadi. Savat bo'sh bo'lsa None qaytaradi."""
     items = await cart_get(user_id)
     if not items:
@@ -193,14 +227,14 @@ async def create_order(user_id: int, full_name: str, phone: str, address: str | 
     total = sum(i["subtotal"] for i in items)
     async with _connect() as db:
         cur = await db.execute(
-            "INSERT INTO orders (user_id, full_name, phone, address, latitude, longitude, total, status, created_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, 'new', ?)",
-            (user_id, full_name, phone, address, latitude, longitude, total, _now()),
+            "INSERT INTO orders (user_id, full_name, phone, address, latitude, longitude, comment, total, status, created_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'new', ?)",
+            (user_id, full_name, phone, address, latitude, longitude, comment, total, _now()),
         )
         order_id = cur.lastrowid
         await db.executemany(
-            "INSERT INTO order_items (order_id, product_id, name, price, qty) VALUES (?, ?, ?, ?, ?)",
-            [(order_id, i["product_id"], i["name"], i["price"], i["qty"]) for i in items],
+            "INSERT INTO order_items (order_id, product_id, name, size, price, qty) VALUES (?, ?, ?, ?, ?, ?)",
+            [(order_id, i["product_id"], i["name"], i["size"], i["price"], i["qty"]) for i in items],
         )
         await db.execute("DELETE FROM cart WHERE user_id = ?", (user_id,))
         await db.commit()

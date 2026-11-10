@@ -1,19 +1,25 @@
-# 🛍 Do'kon bot (aiogram 3)
+# 💎 Azure Jewelry — zargarlik do'koni boti (aiogram 3)
 
-Telegram orqali mahsulot sotish uchun bot: katalog, savat, buyurtma berish va admin panel.
+Telegram orqali zargarlik buyumlarini sotish uchun bot: katalog, uzuk o'lchamini tanlash, savat,
+buyurtma berish va admin panel.
 
 ## Imkoniyatlar
 
 **Mijozlar uchun**
 - 🛍 Katalog — kategoriyalar va mahsulotlar (rasm, tavsif, narx)
+- 📏 O'lcham tanlash (uzuk, zanjir va h.k.) — o'lchami bor mahsulotni o'lchamsiz savatga qo'shib bo'lmaydi
 - ➖/➕ miqdor tanlash va savatga qo'shish
 - 🛒 Savat — ko'rish, mahsulotni olib tashlash, tozalash
-- ✅ Buyurtma berish — ism, telefon (kontakt tugmasi), manzil yoki joylashuv, tasdiqlash
+- ✅ Buyurtma berish — ism, telefon (kontakt tugmasi), manzil yoki joylashuv, izoh (sovg'a qadoqlash,
+  otkritka yozuvi), tasdiqlash
+- 💎 Biz haqimizda, 📢 Kanalimiz, ☎️ Aloqa
 - 📦 Buyurtmalarim — oxirgi buyurtmalar va ularning holati
 - 🔔 Buyurtma holati o'zgarganda xabarnoma
 
 **Adminlar uchun** (`/admin` yoki «⚙️ Admin panel»)
-- Kategoriya / mahsulot qo'shish va o'chirish
+- Kategoriya / mahsulot qo'shish (rasm, tavsif, narx, o'lchamlar) va o'chirish
+- Birinchi ishga tushirishda tayyor kategoriyalar yaratiladi: Uzuklar, Sirg'alar, Zanjirlar,
+  Bilakuzuklar, Kulonlar, To'plamlar
 - Yangi buyurtmalar haqida darhol xabar + holatni o'zgartirish tugmalari
   (Qabul qilindi / Yetkazildi / Bekor qilindi)
 - 📋 Buyurtmalar ro'yxati, `/order 12` — batafsil ko'rish
@@ -37,6 +43,9 @@ python main.py
 | `BOT_TOKEN`    | [@BotFather](https://t.me/BotFather) dan olingan token        |
 | `ADMIN_IDS`    | Adminlar Telegram ID lari, vergul bilan (ID ni @userinfobot dan bilish mumkin) |
 | `DB_PATH`      | SQLite fayl nomi (standart: `shop.db`)                        |
+| `SHOP_NAME`    | Do'kon nomi (standart: `Azure Jewelry`)                      |
+| `CHANNEL`      | Telegram kanal (standart: `@azure_jewelry`, bo'sh — tugma chiqmaydi) |
+| `ABOUT_TEXT`   | «💎 Biz haqimizda» matni (ixtiyoriy)                          |
 | `CONTACT_TEXT` | «☎️ Aloqa» tugmasi matni (`\n` — yangi qator)                 |
 
 > ⚠️ Tokenni hech qachon kodga yozmang va GitHub'ga yuklamang — faqat `.env` yoki hosting
