@@ -276,10 +276,20 @@ TEXTS: dict[str, dict[str, str]] = {
               "🚚 Қала бойынша жеткізу\n💍 Сақиналар үшін өлшем таңдау мүмкіндігі",
     },
     "contact_default": {
-        "uz": "📞 Biz bilan bog'lanish uchun adminga yozing.",
-        "ru": "📞 Чтобы связаться с нами, напишите администратору.",
-        "tg": "📞 Барои тамос ба админ нависед.",
-        "kk": "📞 Бізбен байланысу үшін әкімшіге жазыңыз.",
+        "uz": "☎️ <b>Biz bilan bog'lanish</b>\n\n📞 Telefon: {phone}\n\n"
+              "Savollaringiz bo'lsa, qo'ng'iroq qiling yoki Telegram orqali yozing — yordam berishdan xursandmiz! 💎",
+        "ru": "☎️ <b>Связаться с нами</b>\n\n📞 Телефон: {phone}\n\n"
+              "Если у вас есть вопросы — позвоните или напишите нам в Telegram, мы с радостью поможем! 💎",
+        "tg": "☎️ <b>Тамос бо мо</b>\n\n📞 Телефон: {phone}\n\n"
+              "Агар савол дошта бошед, занг занед ё дар Telegram нависед — бо хурсандӣ кӯмак мекунем! 💎",
+        "kk": "☎️ <b>Бізбен байланыс</b>\n\n📞 Телефон: {phone}\n\n"
+              "Сұрақтарыңыз болса, қоңырау шалыңыз немесе Telegram арқылы жазыңыз — көмектесуге қуаныштымыз! 💎",
+    },
+    "admin_appointed": {
+        "uz": "🎉 Siz <b>{shop}</b> botida <b>admin</b> etib tayinlandingiz!\n\nPastdagi «⚙️ Admin panel» tugmasidan foydalaning.",
+        "ru": "🎉 Вы назначены <b>администратором</b> бота <b>{shop}</b>!\n\nИспользуйте кнопку «⚙️ Admin panel» внизу.",
+        "tg": "🎉 Шумо <b>админи</b> боти <b>{shop}</b> таъин шудед!\n\nАз тугмаи «⚙️ Admin panel» дар поён истифода баред.",
+        "kk": "🎉 Сіз <b>{shop}</b> ботының <b>әкімшісі</b> болып тағайындалдыңыз!\n\nТөмендегі «⚙️ Admin panel» түймесін пайдаланыңыз.",
     },
     # ---------------- Aksiya ----------------
     "promo_title_1111": {

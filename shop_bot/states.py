@@ -25,6 +25,10 @@ class Broadcast(StatesGroup):
     message = State()
 
 
+class AdminForm(StatesGroup):
+    user = State()
+
+
 class PromoForm(StatesGroup):
     percent = State()
     custom_period = State()

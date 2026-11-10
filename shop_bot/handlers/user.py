@@ -9,7 +9,7 @@ from aiogram.types import CallbackQuery, InlineKeyboardMarkup, Message
 
 import db
 import keyboards as kb
-from config import ADMIN_IDS, SHOP_NAME, _env_text, is_admin
+from config import SHOP_NAME, SHOP_PHONE, _env_text, all_admin_ids, fmt_phone, is_admin
 from db import product_sizes
 from i18n import all_texts, loc, t
 from states import OrderForm
@@ -349,7 +349,7 @@ async def cb_order_confirm(callback: CallbackQuery, state: FSMContext, bot: Bot,
 
     # Adminlarga xabar (o'zbek tilida)
     admin_text = "🔔 <b>Yangi buyurtma!</b>\n\n" + kb.order_text(order, items, "uz", for_admin=True)
-    for admin_id in ADMIN_IDS:
+    for admin_id in all_admin_ids():
         try:
             await bot.send_message(admin_id, admin_text, reply_markup=kb.admin_order_kb(order_id))
             if order["latitude"] is not None:
@@ -393,7 +393,7 @@ async def channel(message: Message, lang: str):
 
 @router.message(F.text.in_(all_texts("btn_contact")))
 async def contact(message: Message, lang: str):
-    await message.answer(_env_text("CONTACT_TEXT", lang) or t("contact_default", lang))
+    await message.answer(_env_text("CONTACT_TEXT", lang) or t("contact_default", lang, phone=fmt_phone(SHOP_PHONE)))
 
 
 @router.message()

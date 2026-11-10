@@ -53,8 +53,33 @@ def channel_url() -> str | None:
     return "https://t.me/" + CHANNEL.lstrip("@")
 
 
-def is_admin(user_id: int) -> bool:
+# Bot orqali qo'shilgan adminlar (bazadan yuklanadi, db.init_db / db.add_admin yangilaydi)
+EXTRA_ADMINS: set[int] = set()
+
+# Aloqa telefoni («☎️ Aloqa» tugmasida ko'rsatiladi)
+SHOP_PHONE = os.getenv("SHOP_PHONE", "+998900441678").strip()
+
+
+def is_owner(user_id: int) -> bool:
+    """Bosh admin (ADMIN_IDS da ko'rsatilgan) — adminlarni qo'sha/o'chira oladi."""
     return user_id in ADMIN_IDS
+
+
+def is_admin(user_id: int) -> bool:
+    return user_id in ADMIN_IDS or user_id in EXTRA_ADMINS
+
+
+def all_admin_ids() -> list[int]:
+    return list(dict.fromkeys([*ADMIN_IDS, *sorted(EXTRA_ADMINS)]))
+
+
+def fmt_phone(phone: str) -> str:
+    """+998900441678 -> +998 90 044 16 78"""
+    digits = "".join(ch for ch in phone if ch.isdigit())
+    if len(digits) == 12 and digits.startswith("998"):
+        d = digits
+        return f"+{d[:3]} {d[3:5]} {d[5:8]} {d[8:10]} {d[10:]}"
+    return phone
 
 
 def fmt_price(amount: int, lang: str = "uz") -> str:

@@ -16,9 +16,9 @@ from aiogram.types import CallbackQuery, Message, TelegramObject
 import db
 import keyboards as kb
 import pricing
-from config import TIMEZONE, fmt_price, is_admin, now
+from config import ADMIN_IDS, SHOP_NAME, TIMEZONE, fmt_price, is_admin, is_owner, now
 from i18n import DEFAULT_LANG, LANG_NAMES, all_texts, parse_multilang, t
-from states import AddCategory, AddProduct, Broadcast, PromoForm
+from states import AddCategory, AddProduct, AdminForm, Broadcast, PromoForm
 
 log = logging.getLogger(__name__)
 
@@ -256,6 +256,107 @@ async def cb_promo_announce(callback: CallbackQuery):
         ok, fail = (ok + 1, fail) if sent else (ok, fail + 1)
         await asyncio.sleep(0.05)  # Telegram limitlaridan oshmaslik uchun
     await callback.message.answer(f"✅ E'lon yuborildi: {ok}\n❌ Yuborilmadi (botni bloklagan): {fail}")
+
+
+# ================= ADMINLAR =================
+async def admins_view(viewer_id: int):
+    admins = await db.get_admins()
+    lines = ["👥 <b>Adminlar</b>\n", "<b>Bosh admin(lar)</b> — Railway'dagi ADMIN_IDS:"]
+    for owner_id in ADMIN_IDS:
+        user = await db.get_user(owner_id)
+        name = escape(user["full_name"]) if user and user.get("full_name") else "—"
+        lines.append(f"    👑 {name} (<code>{owner_id}</code>)")
+    lines.append("\n<b>Qo'shilgan adminlar:</b>")
+    if admins:
+        for a in admins:
+            lines.append(f"    👤 {escape(a['full_name'] or '—')} (<code>{a['id']}</code>) • {a['created_at']}")
+    else:
+        lines.append("    hali yo'q")
+    can_manage = is_owner(viewer_id)
+    if not can_manage:
+        lines.append("\n<i>Adminlarni faqat bosh admin qo'sha oladi.</i>")
+    else:
+        lines.append(
+            "\n<i>Adminlar buyurtmalarni oladi, mahsulot va aksiyalarni boshqara oladi. "
+            "O'chirish uchun ismi ustiga bosing.</i>"
+        )
+    return "\n".join(lines), kb.admins_kb(admins, can_manage)
+
+
+@router.callback_query(F.data == "adm:admins")
+async def cb_admins(callback: CallbackQuery, state: FSMContext):
+    await state.clear()
+    text, markup = await admins_view(callback.from_user.id)
+    await edit(callback, text, markup)
+
+
+@router.callback_query(F.data == "ad_add")
+async def cb_admin_add(callback: CallbackQuery, state: FSMContext):
+    if not is_owner(callback.from_user.id):
+        await callback.answer("Faqat bosh admin admin qo'sha oladi", show_alert=True)
+        return
+    await state.set_state(AdminForm.user)
+    await callback.message.answer(
+        "Yangi adminni tanlang:\n\n"
+        "👇 «👤 Kontaktlardan tanlash» tugmasini bosing va kontaktlaringizdan odamni tanlang.\n\n"
+        "<i>Yoki uning Telegram ID raqamini yozing (uni @userinfobot orqali bilish mumkin).</i>",
+        reply_markup=kb.pick_admin_kb(),
+    )
+    await callback.answer()
+
+
+async def _make_admin(message: Message, state: FSMContext, lang: str, user_id: int, name: str | None):
+    await state.clear()
+    if is_admin(user_id):
+        await back_to_panel(message, lang, "ℹ️ Bu odam allaqachon admin.")
+        return
+    known = await db.get_user(user_id)
+    name = name or (known["full_name"] if known else None) or str(user_id)
+    await db.add_admin(user_id, name, message.from_user.id)
+    new_lang = (known or {}).get("lang") or DEFAULT_LANG
+    try:
+        await message.bot.send_message(
+            user_id, t("admin_appointed", new_lang, shop=escape(SHOP_NAME)),
+            reply_markup=kb.main_menu(new_lang, True),
+        )
+        note = "U xabardor qilindi ✉️"
+    except Exception:
+        me = await message.bot.me()
+        note = (
+            "⚠️ U hali botga /start bosmagan, shuning uchun xabar yuborilmadi.\n"
+            f"Unga bot havolasini yuboring: https://t.me/{me.username} — /start bosgach, "
+            "«⚙️ Admin panel» tugmasi chiqadi."
+        )
+    await back_to_panel(message, lang, f"✅ <b>{escape(name)}</b> admin qilib qo'shildi!\n{note}")
+
+
+@router.message(AdminForm.user, F.users_shared)
+async def admin_add_shared(message: Message, state: FSMContext, lang: str):
+    shared = message.users_shared.users[0]
+    name = " ".join(x for x in [shared.first_name, shared.last_name] if x) or shared.username
+    await _make_admin(message, state, lang, shared.user_id, name)
+
+
+@router.message(AdminForm.user, F.text.regexp(r"^\s*\d{5,15}\s*$"))
+async def admin_add_by_id(message: Message, state: FSMContext, lang: str):
+    await _make_admin(message, state, lang, int(message.text.strip()), None)
+
+
+@router.message(AdminForm.user)
+async def admin_add_invalid(message: Message):
+    await message.answer("«👤 Kontaktlardan tanlash» tugmasini bosing yoki ID raqamni yozing (faqat raqamlar).")
+
+
+@router.callback_query(F.data.startswith("ad_rm:"))
+async def cb_admin_remove(callback: CallbackQuery):
+    if not is_owner(callback.from_user.id):
+        await callback.answer("Faqat bosh admin adminlarni o'chira oladi", show_alert=True)
+        return
+    user_id = int(callback.data.split(":")[1])
+    await db.remove_admin(user_id)
+    await callback.answer("🗑 Admin o'chirildi", show_alert=True)
+    text, markup = await admins_view(callback.from_user.id)
+    await edit(callback, text, markup)
 
 
 # ================= KATEGORIYALAR =================

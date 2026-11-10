@@ -5,6 +5,7 @@ from aiogram.types import (
     InlineKeyboardButton,
     InlineKeyboardMarkup,
     KeyboardButton,
+    KeyboardButtonRequestUsers,
     ReplyKeyboardMarkup,
 )
 from aiogram.utils.keyboard import InlineKeyboardBuilder
@@ -264,7 +265,8 @@ def admin_menu_kb() -> InlineKeyboardMarkup:
     kb.button(text="📋 Buyurtmalar", callback_data="adm:orders")
     kb.button(text="📊 Statistika", callback_data="adm:stats")
     kb.button(text="📢 Xabar yuborish", callback_data="adm:broadcast")
-    kb.adjust(1, 2, 2, 2, 1)
+    kb.button(text="👥 Adminlar", callback_data="adm:admins")
+    kb.adjust(1, 2, 2, 2, 2)
     return kb.as_markup()
 
 
@@ -275,6 +277,33 @@ def admin_products_delete_kb(products) -> InlineKeyboardMarkup:
     kb.button(text="⬅️ Admin panel", callback_data="adm:menu")
     kb.adjust(1)
     return kb.as_markup()
+
+
+def admins_kb(admins, can_manage: bool) -> InlineKeyboardMarkup:
+    kb = InlineKeyboardBuilder()
+    if can_manage:
+        kb.button(text="➕ Admin qo'shish", callback_data="ad_add")
+        for a in admins:
+            kb.button(text=f"🗑 {a['full_name'] or a['id']}", callback_data=f"ad_rm:{a['id']}")
+    kb.button(text="⬅️ Admin panel", callback_data="adm:menu")
+    kb.adjust(1)
+    return kb.as_markup()
+
+
+def pick_admin_kb() -> ReplyKeyboardMarkup:
+    """Telefon kontaktlaridan foydalanuvchi tanlash tugmasi (ID qidirish shart emas)."""
+    return ReplyKeyboardMarkup(
+        keyboard=[
+            [KeyboardButton(
+                text="👤 Kontaktlardan tanlash",
+                request_users=KeyboardButtonRequestUsers(
+                    request_id=1, user_is_bot=False, max_quantity=1, request_name=True, request_username=True,
+                ),
+            )],
+            [KeyboardButton(text=t("btn_cancel", "uz"))],
+        ],
+        resize_keyboard=True,
+    )
 
 
 def admin_promo_kb(has_promo: bool) -> InlineKeyboardMarkup:

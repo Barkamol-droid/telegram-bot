@@ -6,6 +6,7 @@ DATABASE_URL o'zgaruvchisi berilsa — PostgreSQL (asyncpg) ishlatiladi
 import json
 import os
 from contextlib import asynccontextmanager
+import config
 import pricing
 from config import DATABASE_URL, DB_PATH, DEFAULT_CATEGORIES, now
 
@@ -29,6 +30,12 @@ SCHEMA = """
 CREATE TABLE IF NOT EXISTS meta (
     key    TEXT PRIMARY KEY,
     value  TEXT
+);
+CREATE TABLE IF NOT EXISTS admins (
+    id          {int} PRIMARY KEY,
+    full_name   TEXT,
+    added_by    {int},
+    created_at  TEXT
 );
 CREATE TABLE IF NOT EXISTS users (
     id          {int} PRIMARY KEY,
@@ -242,6 +249,32 @@ async def init_db():
                 "UPDATE categories SET name_i18n = ? WHERE name = ? AND name_i18n IS NULL",
                 (json.dumps(c, ensure_ascii=False), c["uz"]),
             )
+        # Bot orqali qo'shilgan adminlarni xotiraga yuklash
+        config.EXTRA_ADMINS.clear()
+        config.EXTRA_ADMINS.update(int(r["id"]) for r in await db.fetchall("SELECT id FROM admins"))
+
+
+# ---------------- Adminlar ----------------
+async def get_admins() -> list[dict]:
+    return await _fetchall("SELECT * FROM admins ORDER BY created_at")
+
+
+async def add_admin(user_id: int, full_name: str | None, added_by: int):
+    await _execute(
+        "INSERT INTO admins (id, full_name, added_by, created_at) VALUES (?, ?, ?, ?) "
+        "ON CONFLICT(id) DO UPDATE SET full_name = excluded.full_name",
+        (user_id, full_name, added_by, _now()),
+    )
+    config.EXTRA_ADMINS.add(user_id)
+
+
+async def remove_admin(user_id: int):
+    await _execute("DELETE FROM admins WHERE id = ?", (user_id,))
+    config.EXTRA_ADMINS.discard(user_id)
+
+
+async def get_user(user_id: int) -> dict | None:
+    return await _fetchone("SELECT * FROM users WHERE id = ?", (user_id,))
 
 
 # ---------------- Sozlamalar (meta) va aksiya ----------------

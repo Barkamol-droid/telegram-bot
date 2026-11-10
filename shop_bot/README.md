@@ -22,6 +22,8 @@ aksiyalar (masalan 11.11), uzuk o'lchamini tanlash, savat, buyurtma berish va ad
 - 🔥 Aksiya: foiz (1–90%), barcha mahsulotlar yoki bitta kategoriya, muddat («Faqat 11.11 kuni»,
   «Hozirdan 11.11 oxirigacha» yoki istalgan sana). Aksiya o'zi boshlanadi va o'zi tugaydi.
   «📢 Mijozlarga e'lon qilish» — har bir mijozga o'z tilida xabar; «👁 Mijozlar qanday ko'radi» — 4 tilda ko'rish
+- 👥 Adminlar: bosh admin yangi adminni telefon kontaktlaridan tanlab (yoki ID orqali) qo'shadi va o'chiradi.
+  Qo'shilgan adminlar buyurtmalarni oladi, mahsulot va aksiyalarni boshqaradi
 - Mahsulot/kategoriya nomini 4 tilda kiritish: `O'zbekcha | Русский | Тоҷикӣ | Қазақша`
 - Kategoriya / mahsulot qo'shish (rasm, tavsif, narx, o'lchamlar) va o'chirish
 - Birinchi ishga tushirishda tayyor kategoriyalar yaratiladi: Uzuklar, Sirg'alar, Zanjirlar,
@@ -53,6 +55,7 @@ python main.py
 | `SHOP_NAME`    | Do'kon nomi (standart: `Azure Jewelry`)                      |
 | `CHANNEL`      | Telegram kanal (standart: `@azure_jewelry`, bo'sh — tugma chiqmaydi) |
 | `ABOUT_TEXT`   | «💎 Biz haqimizda» matni (ixtiyoriy)                          |
+| `SHOP_PHONE`   | «☎️ Aloqa» da ko'rsatiladigan telefon (standart: `+998900441678`) |
 | `TIMEZONE`     | Vaqt mintaqasi (standart: `Asia/Tashkent`) — aksiya vaqti shu bo'yicha |
 | `CONTACT_TEXT` | «☎️ Aloqa» tugmasi matni (`\n` — yangi qator). Tilga xos: `CONTACT_TEXT_RU`, `_TG`, `_KK` |
 
