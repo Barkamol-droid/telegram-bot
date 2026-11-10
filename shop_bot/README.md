@@ -37,7 +37,9 @@ aksiyalar (masalan 11.11), uzuk o'lchamini tanlash, savat, buyurtma berish va ad
 - 🎬 Rasm / video: mahsulot qo'shishda video yuklash va mavjud mahsulotning rasm/videosini almashtirish
 - 👥 Adminlar: bosh admin yangi adminni telefon kontaktlaridan tanlab (yoki ID orqali) qo'shadi va o'chiradi.
   Qo'shilgan adminlar buyurtmalarni oladi, mahsulot va aksiyalarni boshqaradi
-- Mahsulot/kategoriya nomini 4 tilda kiritish: `O'zbekcha | Русский | Тоҷикӣ | Қазақша`
+- 🌐 **Avtomatik tarjima**: nom, tavsif, kategoriya va rangni o'zbekcha yozasiz — bot rus, tojik, qozoq
+  tillariga o'zi tarjima qiladi va tarjimani ko'rsatadi (Claude — `ANTHROPIC_API_KEY` bo'lsa; aks holda bepul MyMemory)
+- Mahsulot/kategoriya nomini 4 tilda qo'lda kiritish ham mumkin: `O'zbekcha | Русский | Тоҷикӣ | Қазақша`
 - Kategoriya / mahsulot qo'shish (rasm, tavsif, narx, o'lchamlar) va o'chirish
 - Birinchi ishga tushirishda tayyor kategoriyalar yaratiladi: Uzuklar, Sirg'alar, Zanjirlar,
   Bilakuzuklar, Kulonlar, To'plamlar
@@ -74,6 +76,8 @@ python main.py
 | `BONUS_STEP`   | Necha so'm xarid uchun 1 💎 (standart: `100000`) |
 | `BONUS_VALUE`  | 1 💎 qiymati, so'mda (standart: `1000`) |
 | `WEBAPP_URL`   | Sayt manzili (Railway'da shart emas — `RAILWAY_PUBLIC_DOMAIN` dan olinadi) |
+| `ANTHROPIC_API_KEY` | Claude orqali sifatli avtomatik tarjima (ixtiyoriy; bo'lmasa — bepul xizmat) |
+| `AUTO_TRANSLATE` | `0` — avtomatik tarjimani o'chirish |
 | `TIMEZONE`     | Vaqt mintaqasi (standart: `Asia/Tashkent`) — aksiya vaqti shu bo'yicha |
 | `CONTACT_TEXT` | «☎️ Aloqa» tugmasi matni (`\n` — yangi qator). Tilga xos: `CONTACT_TEXT_RU`, `_TG`, `_KK` |
 

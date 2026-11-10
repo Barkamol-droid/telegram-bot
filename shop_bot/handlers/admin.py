@@ -17,19 +17,36 @@ import colors as color_mod
 import db
 import keyboards as kb
 import pricing
+import translate
 from config import (
     ADMIN_IDS, BONUS_VALUE, MAX_WEB_MEDIA_BYTES, PAYMENT_NAMES, SHOP_NAME, WEBAPP_URL, TIMEZONE, fmt_price, is_admin, is_owner, is_test_token, now,
     payment_providers,
 )
-from i18n import DEFAULT_LANG, LANG_NAMES, all_texts, parse_multilang, t
+from i18n import DEFAULT_LANG, LANG_NAMES, all_texts, t
 from states import AddCategory, AddProduct, AdminForm, Broadcast, EditColors, EditMedia, PromoForm
 
 log = logging.getLogger(__name__)
 
 MULTILANG_HINT = (
-    "\n\n🌐 <i>Bir nechta tilda yozish uchun «|» bilan ajrating (tartib: o'zbek | rus | tojik | qozoq):</i>\n"
-    "<code>{example}</code>\n<i>Bitta tilda yozsangiz — barcha tillarda shu matn ko'rinadi.</i>"
+    "\n\n🌐 <i>O'zbekcha yozing — bot rus, tojik va qozoq tillariga avtomatik tarjima qiladi.</i>\n"
+    "<i>Tarjimani o'zingiz bermoqchi bo'lsangiz, «|» bilan ajrating (o'zbek | rus | tojik | qozoq):</i>\n"
+    "<code>{example}</code>"
 )
+
+
+async def translate_input(message: Message, text: str) -> tuple[str, str | None, str]:
+    """Admin matnini tarjima qiladi; tarjima vaqtida «⏳» xabarini ko'rsatadi."""
+    waiting = None
+    if "|" not in text and translate.AUTO_TRANSLATE:
+        waiting = await message.answer("⏳ Tarjima qilinmoqda...")
+    try:
+        return await translate.auto_i18n(text)
+    finally:
+        if waiting:
+            try:
+                await message.bot.delete_message(waiting.chat.id, waiting.message_id)
+            except Exception:  # yordamchi xabar — o'chmasa ham ish davom etadi
+                pass
 
 
 class IsAdmin(BaseFilter):
@@ -377,10 +394,10 @@ async def cb_add_category(callback: CallbackQuery, state: FSMContext):
 
 @router.message(AddCategory.name, F.text)
 async def add_category_name(message: Message, state: FSMContext, lang: str):
-    name, name_i18n = parse_multilang(message.text.strip()[:200])
+    name, name_i18n, status = await translate_input(message, message.text.strip()[:200])
     await db.add_category(name[:64], name_i18n)
     await state.clear()
-    await back_to_panel(message, lang, f"✅ «{escape(name)}» kategoriyasi qo'shildi.")
+    await back_to_panel(message, lang, f"✅ «{escape(name)}» kategoriyasi qo'shildi." + translate.preview(name_i18n, status))
 
 
 @router.callback_query(F.data == "adm:del_cat")
@@ -430,10 +447,11 @@ async def cb_add_product_category(callback: CallbackQuery, state: FSMContext):
 
 @router.message(AddProduct.name, F.text)
 async def add_product_name(message: Message, state: FSMContext):
-    name, name_i18n = parse_multilang(message.text.strip()[:400])
+    name, name_i18n, status = await translate_input(message, message.text.strip()[:400])
     await state.update_data(name=name[:100], name_i18n=name_i18n)
     await state.set_state(AddProduct.description)
     await message.answer(
+        f"✅ Nomi: <b>{escape(name)}</b>" + translate.preview(name_i18n, status) + "\n\n"
         "Mahsulot tavsifini kiriting (material, proba, tosh, vazn va h.k.)."
         + MULTILANG_HINT.format(
             example="585 proba, 2.1 g | 585 проба, 2,1 г | Пробаи 585, 2,1 г | 585 сынама, 2,1 г"
@@ -447,12 +465,13 @@ async def add_product_description(message: Message, state: FSMContext):
     if is_skip(message.text):
         description, description_i18n = None, None
     else:
-        description, description_i18n = parse_multilang(message.text.strip()[:3000])
+        description, description_i18n, status = await translate_input(message, message.text.strip()[:3000])
         description = description[:900]
     await state.update_data(description=description, description_i18n=description_i18n)
     await state.set_state(AddProduct.price)
     await message.answer(
-        "Narxini kiriting (faqat raqam, so'mda). Masalan: 25000\n"
+        (("✅ Tavsif saqlandi." + translate.preview(description_i18n, status) + "\n\n") if description else "")
+        + "Narxini kiriting (faqat raqam, so'mda). Masalan: 25000\n"
         "<i>Aksiya bo'lsa, chegirma avtomatik hisoblanadi — bu yerga asl narxni yozing.</i>",
         reply_markup=kb.cancel_kb(DEFAULT_LANG),
     )
@@ -497,8 +516,8 @@ async def add_product_sizes(message: Message, state: FSMContext):
 
 COLORS_HELP = (
     "🎨 Mahsulot <b>ranglarini</b> belgilang (bir nechtasini tanlash mumkin), so'ng «✔️ Tayyor» ni bosing.\n\n"
-    "Ro'yxatda yo'q rangni yozib yuboring (vergul bilan bir nechta; 4 tilda — «|» bilan):\n"
-    "<code>Yashil | Зелёный | Сабз | Жасыл</code>\n\n"
+    "Ro'yxatda yo'q rangni o'zbekcha yozib yuboring (vergul bilan bir nechta), masalan <code>Yashil</code> — "
+    "bot uni boshqa tillarga o'zi tarjima qiladi.\n\n"
     "Rang kerak bo'lmasa — «O'tkazib yuborish»."
 )
 
@@ -536,6 +555,7 @@ async def add_product_colors_text(message: Message, state: FSMContext):
         return
     colors = (await state.get_data()).get("colors", [])
     for custom in color_mod.parse_custom(message.text):
+        custom = await translate.auto_color(custom)
         if custom not in colors and len(colors) < color_mod.MAX_COLORS:
             colors.append(custom)
     await state.update_data(colors=colors)
@@ -733,6 +753,7 @@ async def cb_edit_colors_toggle(callback: CallbackQuery, state: FSMContext):
 async def edit_colors_text(message: Message, state: FSMContext):
     colors = (await state.get_data()).get("colors", [])
     for custom in color_mod.parse_custom(message.text):
+        custom = await translate.auto_color(custom)
         if custom not in colors and len(colors) < color_mod.MAX_COLORS:
             colors.append(custom)
     await state.update_data(colors=colors)
