@@ -6,6 +6,10 @@ aksiyalar (masalan 11.11), uzuk o'lchamini tanlash, savat, buyurtma berish va ad
 ## Imkoniyatlar
 
 **Mijozlar uchun**
+- 🛍 **Sayt ko'rinishi (Telegram Mini App)**: bot ichida ochiladigan do'kon — mahsulot kartochkalari, qidiruv,
+  kategoriyalar, rasm va 🎬 video, o'lcham tanlash, savat, brilliantlar, buyurtma berish. Telegram mavzusiga
+  (yorug'/qorong'i) moslashadi, 4 tilda. Chat menyusidagi «🛍 Do'kon» tugmasi yoki «🛍 Katalog» orqali ochiladi
+- 🎬 Mahsulot videosi: bot chatida ham («🎬 Videoni ko'rish»), saytda ham
 - 🌐 Til tanlash: birinchi /start da va «🌐 Til» tugmasi orqali (o'zbek, rus, tojik, qozoq)
 - 🔥 Aksiya: chegirmali narxlar (eski narx chizilgan), tugashigacha qolgan vaqt, savatda «Tejadingiz»
 - 🛍 Katalog — kategoriyalar va mahsulotlar (rasm, tavsif, narx)
@@ -27,6 +31,7 @@ aksiyalar (masalan 11.11), uzuk o'lchamini tanlash, savat, buyurtma berish va ad
   «📢 Mijozlarga e'lon qilish» — har bir mijozga o'z tilida xabar; «👁 Mijozlar qanday ko'radi» — 4 tilda ko'rish
 - 💎 Brilliantlar: buyurtma «🚚 Yetkazildi» qilinganda mijozga avtomatik beriladi; bekor qilinsa,
   ishlatilganlari qaytariladi. `/bonus ID SON` — mijozga brilliant sovg'a qilish. Statistikada jami brilliantlar
+- 🎬 Rasm / video: mahsulot qo'shishda video yuklash va mavjud mahsulotning rasm/videosini almashtirish
 - 👥 Adminlar: bosh admin yangi adminni telefon kontaktlaridan tanlab (yoki ID orqali) qo'shadi va o'chiradi.
   Qo'shilgan adminlar buyurtmalarni oladi, mahsulot va aksiyalarni boshqaradi
 - Mahsulot/kategoriya nomini 4 tilda kiritish: `O'zbekcha | Русский | Тоҷикӣ | Қазақша`
@@ -65,11 +70,23 @@ python main.py
 | `PAYME_TOKEN`  | Payme provider token (BotFather → Payments). Bo'lmasa, Payme tugmasi chiqmaydi |
 | `BONUS_STEP`   | Necha so'm xarid uchun 1 💎 (standart: `100000`) |
 | `BONUS_VALUE`  | 1 💎 qiymati, so'mda (standart: `1000`) |
+| `WEBAPP_URL`   | Sayt manzili (Railway'da shart emas — `RAILWAY_PUBLIC_DOMAIN` dan olinadi) |
 | `TIMEZONE`     | Vaqt mintaqasi (standart: `Asia/Tashkent`) — aksiya vaqti shu bo'yicha |
 | `CONTACT_TEXT` | «☎️ Aloqa» tugmasi matni (`\n` — yangi qator). Tilga xos: `CONTACT_TEXT_RU`, `_TG`, `_KK` |
 
 > ⚠️ Tokenni hech qachon kodga yozmang va GitHub'ga yuklamang — faqat `.env` yoki hosting
 > sozlamalaridagi environment variable orqali bering.
+
+## Sayt ko'rinishi (Mini App) ni yoqish
+
+Bot o'zi ichida veb-server ishga tushiradi (`PORT`, standart 8080). Telegram Mini App uchun HTTPS manzil kerak:
+
+1. Railway → servis → **Settings → Networking → Generate Domain** (port so'ralsa: `8080`).
+2. Railway `RAILWAY_PUBLIC_DOMAIN` ni avtomatik beradi — bot uni o'zi topadi. Boshqa hostingda `WEBAPP_URL=https://...` bering.
+3. Qayta deploy qiling. Chat menyusida «🛍 Do'kon» tugmasi paydo bo'ladi.
+
+Rasmlar va videolar Telegram'dan olinib, serverda keshlanadi. Bot API cheklovi sababli saytda **20 MB gacha**
+videolar ko'rinadi (botda — istalgan hajmda).
 
 ## Onlayn to'lov (Click, Payme)
 
@@ -99,6 +116,9 @@ shop_bot/
     ├── user.py      # katalog, savat, buyurtma
     ├── payment.py   # Click, Payme, naqd to'lov
     ├── bonus.py     # 💎 brilliantlar: balans, tarix, sovg'a qilish
+webapp/
+├── server.py        # sayt API (initData tekshiruvi, savat, buyurtma, media)
+└── static/index.html  # sayt (Mini App) — HTML/CSS/JS, kutubxonasiz
     └── admin.py     # admin panel
 ```
 

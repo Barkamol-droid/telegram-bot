@@ -2,11 +2,11 @@
 from aiogram import F, Router
 from aiogram.filters import CommandStart
 from aiogram.fsm.context import FSMContext
-from aiogram.types import CallbackQuery, Message
+from aiogram.types import CallbackQuery, MenuButtonWebApp, Message, WebAppInfo
 
 import db
 import keyboards as kb
-from config import is_admin
+from config import WEBAPP_URL, is_admin
 from i18n import LANGS, all_texts, remember_lang, t
 
 router = Router()
@@ -14,6 +14,16 @@ router = Router()
 
 async def send_welcome(message: Message, first_name: str, user_id: int, lang: str):
     await message.answer(kb.welcome_text(first_name, lang), reply_markup=kb.main_menu(lang, is_admin(user_id)))
+    if WEBAPP_URL:
+        # Chat menyusidagi «🛍 Do'kon» tugmasi — foydalanuvchi tilida
+        try:
+            await message.bot.set_chat_menu_button(
+                chat_id=user_id,
+                menu_button=MenuButtonWebApp(text=t("menu_shop", lang), web_app=WebAppInfo(url=WEBAPP_URL)),
+            )
+        except Exception:
+            pass
+        await message.answer(t("open_shop_hint", lang), reply_markup=kb.open_shop_kb(lang))
     promo = await db.get_promo()
     category = await db.get_category(promo["category_id"]) if promo and promo.get("category_id") else None
     banner = kb.promo_banner(promo, lang, category)

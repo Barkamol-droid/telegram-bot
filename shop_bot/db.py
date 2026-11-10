@@ -210,6 +210,8 @@ _EXTRA_COLUMNS = [
     ("orders", "payment_charge_id", "TEXT"),
     ("orders", "provider_charge_id", "TEXT"),
     ("users", "bonus", "INTEGER NOT NULL DEFAULT 0"),
+    ("products", "video_id", "TEXT"),
+    ("products", "video_size", "INTEGER"),
     ("orders", "subtotal", f"{_T['int']}"),
     ("orders", "bonus_used", "INTEGER NOT NULL DEFAULT 0"),
     ("orders", "bonus_discount", f"{_T['int']} NOT NULL DEFAULT 0"),
@@ -393,12 +395,56 @@ def product_sizes(product) -> list[str]:
 
 async def add_product(category_id: int, name: str, description: str | None,
                       price: int, photo_id: str | None, sizes: list[str] | None = None,
-                      name_i18n: str | None = None, description_i18n: str | None = None) -> int:
+                      name_i18n: str | None = None, description_i18n: str | None = None,
+                      video_id: str | None = None, video_size: int | None = None) -> int:
     return await _insert(
-        "INSERT INTO products (category_id, name, name_i18n, description, description_i18n, price, photo_id, sizes) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        "INSERT INTO products (category_id, name, name_i18n, description, description_i18n, price, photo_id, sizes, "
+        "video_id, video_size) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         (category_id, name, name_i18n, description, description_i18n, price, photo_id,
-         ",".join(sizes) if sizes else None),
+         ",".join(sizes) if sizes else None, video_id, video_size),
+    )
+
+
+async def get_all_products() -> list[dict]:
+    """Barcha faol mahsulotlar (sayt ko'rinishi uchun)."""
+    return await _fetchall(
+        "SELECT p.* FROM products p JOIN categories c ON c.id = p.category_id "
+        "WHERE p.is_active = 1 ORDER BY p.id DESC"
+    )
+
+
+async def set_product_photo(product_id: int, photo_id: str | None):
+    await _execute("UPDATE products SET photo_id = ? WHERE id = ?", (photo_id, product_id))
+
+
+async def set_product_video(product_id: int, video_id: str | None, video_size: int | None = None):
+    await _execute("UPDATE products SET video_id = ?, video_size = ? WHERE id = ?", (video_id, video_size, product_id))
+
+
+async def is_product_media(file_id: str) -> bool:
+    """Fayl biror faol mahsulotning rasmi yoki videosimi (sayt orqali faqat shularni beramiz)."""
+    row = await _fetchone(
+        "SELECT 1 AS ok FROM products WHERE is_active = 1 AND (photo_id = ? OR video_id = ?)", (file_id, file_id)
+    )
+    return row is not None
+
+
+async def get_last_contact(user_id: int) -> dict | None:
+    """Oxirgi buyurtmadagi ism, telefon, manzil — saytdagi formani avtomatik to'ldirish uchun."""
+    return await _fetchone(
+        "SELECT full_name, phone, address FROM orders WHERE user_id = ? ORDER BY id DESC LIMIT 1", (user_id,)
+    )
+
+
+async def cart_set(user_id: int, product_id: int, size: str, qty: int):
+    """Savatdagi miqdorni aniq qiymatga o'rnatadi (0 — o'chiradi)."""
+    if qty <= 0:
+        await cart_remove(user_id, product_id, size)
+        return
+    await _execute(
+        "INSERT INTO cart (user_id, product_id, size, qty) VALUES (?, ?, ?, ?) "
+        "ON CONFLICT(user_id, product_id, size) DO UPDATE SET qty = excluded.qty",
+        (user_id, product_id, size, min(qty, 99)),
     )
 
 

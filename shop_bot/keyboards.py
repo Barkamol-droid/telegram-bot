@@ -2,6 +2,7 @@
 from html import escape
 
 from aiogram.types import (
+    WebAppInfo,
     InlineKeyboardButton,
     InlineKeyboardMarkup,
     KeyboardButton,
@@ -11,7 +12,7 @@ from aiogram.types import (
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 import pricing
-from config import BONUS_VALUE, PAYMENT_NAMES, SHOP_NAME, channel_url, fmt_price, now, payment_providers
+from config import BONUS_VALUE, PAYMENT_NAMES, SHOP_NAME, WEBAPP_URL, channel_url, fmt_price, now, payment_providers
 from i18n import LANG_NAMES, fmt_duration, loc, t
 
 BTN_ADMIN = "⚙️ Admin panel"
@@ -134,8 +135,17 @@ def products_kb(products, lang: str, promo: dict | None) -> InlineKeyboardMarkup
     return kb.as_markup()
 
 
+def open_shop_kb(lang: str, path: str = "") -> InlineKeyboardMarkup | None:
+    """Saytni (Mini App) ochish tugmasi. WEBAPP_URL sozlanmagan bo'lsa — None."""
+    if not WEBAPP_URL:
+        return None
+    return InlineKeyboardMarkup(inline_keyboard=[[
+        InlineKeyboardButton(text=t("btn_open_shop", lang), web_app=WebAppInfo(url=f"{WEBAPP_URL}/{path}"))
+    ]])
+
+
 def product_kb(product_id: int, category_id: int, lang: str, qty: int = 1,
-               sizes: list[str] | None = None, size: str = "") -> InlineKeyboardMarkup:
+               sizes: list[str] | None = None, size: str = "", has_video: bool = False) -> InlineKeyboardMarkup:
     """Mahsulot kartasi. sizes bo'lsa — o'lcham tanlash tugmalari chiqadi.
     Callback formatlari: sz:<id>:<o'lcham>:<miqdor>, qty:<id>:<miqdor>:<o'lcham>, add:<id>:<miqdor>:<o'lcham>"""
     rows = []
@@ -151,6 +161,8 @@ def product_kb(product_id: int, category_id: int, lang: str, qty: int = 1,
         InlineKeyboardButton(text="➕", callback_data=f"qty:{product_id}:{qty + 1}:{size}"),
     ])
     rows.append([InlineKeyboardButton(text=t("btn_add_cart", lang), callback_data=f"add:{product_id}:{qty}:{size}")])
+    if has_video:
+        rows.append([InlineKeyboardButton(text=t("btn_video", lang), callback_data=f"pvid:{product_id}")])
     rows.append([
         InlineKeyboardButton(text=t("btn_back", lang), callback_data=f"cat:{category_id}"),
         InlineKeyboardButton(text=t("btn_cart", lang), callback_data="cart"),
@@ -364,7 +376,8 @@ def admin_menu_kb() -> InlineKeyboardMarkup:
     kb.button(text="📊 Statistika", callback_data="adm:stats")
     kb.button(text="📢 Xabar yuborish", callback_data="adm:broadcast")
     kb.button(text="👥 Adminlar", callback_data="adm:admins")
-    kb.adjust(1, 2, 2, 2, 2)
+    kb.button(text="🎬 Rasm / video", callback_data="adm:media")
+    kb.adjust(1, 2, 2, 2, 2, 1)
     return kb.as_markup()
 
 

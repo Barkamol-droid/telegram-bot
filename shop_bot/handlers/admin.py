@@ -17,11 +17,11 @@ import db
 import keyboards as kb
 import pricing
 from config import (
-    ADMIN_IDS, BONUS_VALUE, PAYMENT_NAMES, SHOP_NAME, TIMEZONE, fmt_price, is_admin, is_owner, is_test_token, now,
+    ADMIN_IDS, BONUS_VALUE, MAX_WEB_MEDIA_BYTES, PAYMENT_NAMES, SHOP_NAME, WEBAPP_URL, TIMEZONE, fmt_price, is_admin, is_owner, is_test_token, now,
     payment_providers,
 )
 from i18n import DEFAULT_LANG, LANG_NAMES, all_texts, parse_multilang, t
-from states import AddCategory, AddProduct, AdminForm, Broadcast, PromoForm
+from states import AddCategory, AddProduct, AdminForm, Broadcast, EditMedia, PromoForm
 
 log = logging.getLogger(__name__)
 
@@ -493,10 +493,48 @@ async def add_product_sizes(message: Message, state: FSMContext):
     await message.answer("📸 Mahsulot rasmini yuboring:", reply_markup=kb.skip_cancel_kb(DEFAULT_LANG))
 
 
+HAS, HAS_NOT = "bor ✅", "yo'q"
+VIDEO_TOO_BIG = (
+    "\n⚠️ Video hajmi 20 MB dan katta — botda ko'rinadi, lekin saytda ko'rinmaydi. "
+    "Saytda ham chiqishi uchun qisqaroq (20 MB gacha) video yuboring."
+)
+
+
+def _video_from(message: Message) -> tuple[str, int] | None:
+    """Xabardagi video (oddiy video yoki video-fayl) — (file_id, hajm)."""
+    if message.video:
+        return message.video.file_id, message.video.file_size or 0
+    if message.document and (message.document.mime_type or "").startswith("video/"):
+        return message.document.file_id, message.document.file_size or 0
+    return None
+
+
 @router.message(AddProduct.photo, F.photo)
 @router.message(AddProduct.photo, F.text.in_(all_texts("btn_skip")))
-async def add_product_photo(message: Message, state: FSMContext, lang: str):
-    photo_id = message.photo[-1].file_id if message.photo else None
+async def add_product_photo(message: Message, state: FSMContext):
+    await state.update_data(photo_id=message.photo[-1].file_id if message.photo else None)
+    await state.set_state(AddProduct.video)
+    await message.answer(
+        "🎬 Mahsulot videosini yuboring (ixtiyoriy).\n"
+        "<i>Video mahsulotni har tomondan ko'rsatsa — mijozlar ko'proq ishonadi. "
+        "Saytda ko'rinishi uchun 20 MB gacha bo'lsin.</i>",
+        reply_markup=kb.skip_cancel_kb(DEFAULT_LANG),
+    )
+
+
+@router.message(AddProduct.photo)
+async def add_product_photo_invalid(message: Message):
+    await message.answer("Iltimos, rasm yuboring yoki «O'tkazib yuborish» tugmasini bosing.")
+
+
+@router.message(AddProduct.video, F.video | F.document | F.text.in_(all_texts("btn_skip")))
+async def add_product_video(message: Message, state: FSMContext, lang: str):
+    video = _video_from(message)
+    if not video and not is_skip(message.text):
+        await message.answer("Iltimos, video yuboring yoki «O'tkazib yuborish» tugmasini bosing.")
+        return
+    video_id, video_size = video or (None, None)
+    photo_id = (await state.get_data()).get("photo_id")
     data = await state.get_data()
     await state.clear()
     if not await db.get_category(data["category_id"]):
@@ -505,9 +543,11 @@ async def add_product_photo(message: Message, state: FSMContext, lang: str):
     sizes = data.get("sizes") or []
     await db.add_product(
         data["category_id"], data["name"], data["description"], data["price"], photo_id, sizes,
-        data.get("name_i18n"), data.get("description_i18n"),
+        data.get("name_i18n"), data.get("description_i18n"), video_id, video_size,
     )
     info = f"✅ Mahsulot qo'shildi: <b>{escape(data['name'])}</b> — {fmt_price(data['price'])}"
+    if video_id:
+        info += "\n🎬 Video qo'shildi" + (VIDEO_TOO_BIG if video_size and video_size > MAX_WEB_MEDIA_BYTES else "")
     if sizes:
         info += f"\n📏 O'lchamlar: {escape(', '.join(sizes))}"
     if data.get("name_i18n"):
@@ -515,9 +555,87 @@ async def add_product_photo(message: Message, state: FSMContext, lang: str):
     await back_to_panel(message, lang, info)
 
 
-@router.message(AddProduct.photo)
-async def add_product_photo_invalid(message: Message):
-    await message.answer("Iltimos, rasm yuboring yoki «O'tkazib yuborish» tugmasini bosing.")
+@router.message(AddProduct.video)
+async def add_product_video_invalid(message: Message):
+    await message.answer("Iltimos, video yuboring yoki «O'tkazib yuborish» tugmasini bosing.")
+
+
+# ---------------- Mavjud mahsulotning rasm/videosini o'zgartirish ----------------
+@router.callback_query(F.data == "adm:media")
+async def cb_media(callback: CallbackQuery):
+    categories = await db.get_categories()
+    if not categories:
+        await callback.answer("Kategoriyalar yo'q", show_alert=True)
+        return
+    await edit(callback, "🎬 Qaysi kategoriyadagi mahsulot?", kb.categories_kb(categories, prefix="mdc"))
+
+
+@router.callback_query(F.data.startswith("mdc:"))
+async def cb_media_category(callback: CallbackQuery):
+    products = await db.get_products(int(callback.data.split(":")[1]))
+    if not products:
+        await callback.answer("Bu kategoriyada mahsulot yo'q", show_alert=True)
+        return
+    markup = kb.InlineKeyboardBuilder()
+    for p in products:
+        icons = ("🖼" if p["photo_id"] else "") + ("🎬" if p.get("video_id") else "")
+        markup.button(text=f"{p['name']} {icons}".strip(), callback_data=f"mdp:{p['id']}")
+    markup.button(text="⬅️ Admin panel", callback_data="adm:menu")
+    markup.adjust(1)
+    await edit(callback, "Mahsulotni tanlang (🖼 — rasm bor, 🎬 — video bor):", markup.as_markup())
+
+
+@router.callback_query(F.data.startswith("mdp:"))
+async def cb_media_product(callback: CallbackQuery, state: FSMContext):
+    product = await db.get_product(int(callback.data.split(":")[1]))
+    if not product:
+        await callback.answer("Mahsulot topilmadi", show_alert=True)
+        return
+    await state.set_state(EditMedia.wait)
+    await state.update_data(media_product_id=product["id"])
+    markup = None
+    if product.get("video_id"):
+        markup = kb.InlineKeyboardMarkup(inline_keyboard=[[
+            kb.InlineKeyboardButton(text="🗑 Videoni o'chirish", callback_data=f"mdelv:{product['id']}")
+        ]])
+    await callback.message.answer(
+        f"<b>{escape(product['name'])}</b>\n\n"
+        f"🖼 Rasm: {HAS if product['photo_id'] else HAS_NOT}\n🎬 Video: {HAS if product.get('video_id') else HAS_NOT}\n\n"
+        "Yangi <b>rasm</b> yoki <b>video</b> yuboring — eskisining o'rniga qo'yiladi.",
+        reply_markup=markup,
+    )
+    await callback.message.answer("👇", reply_markup=kb.cancel_kb(DEFAULT_LANG))
+    await callback.answer()
+
+
+@router.message(EditMedia.wait, F.photo | F.video | F.document)
+async def media_upload(message: Message, state: FSMContext, lang: str):
+    product_id = (await state.get_data()).get("media_product_id")
+    video = _video_from(message)
+    if message.photo:
+        await db.set_product_photo(product_id, message.photo[-1].file_id)
+        info = "✅ Rasm yangilandi."
+    elif video:
+        await db.set_product_video(product_id, video[0], video[1])
+        info = "✅ Video yangilandi." + (VIDEO_TOO_BIG if video[1] > MAX_WEB_MEDIA_BYTES else "")
+    else:
+        await message.answer("Iltimos, rasm yoki video yuboring.")
+        return
+    await state.clear()
+    await back_to_panel(message, lang, info)
+
+
+@router.message(EditMedia.wait)
+async def media_upload_invalid(message: Message):
+    await message.answer("Iltimos, rasm yoki video yuboring (yoki «❌ Bekor qilish»).")
+
+
+@router.callback_query(F.data.startswith("mdelv:"))
+async def cb_media_delete_video(callback: CallbackQuery, state: FSMContext, lang: str):
+    await db.set_product_video(int(callback.data.split(":")[1]), None)
+    await state.clear()
+    await callback.answer("🗑 Video o'chirildi", show_alert=True)
+    await back_to_panel(callback.message, lang, "✅ Video o'chirildi.")
 
 
 @router.callback_query(F.data == "adm:del_prod")

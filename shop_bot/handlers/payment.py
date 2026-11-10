@@ -35,13 +35,6 @@ async def notify_admins(bot: Bot, text: str):
             log.warning("Adminga (%s) xabar yuborilmadi: %s", admin_id, e)
 
 
-async def offer_payment(message: Message, order_id: int, lang: str):
-    """Buyurtmadan keyin to'lov usullarini taklif qiladi (onlayn to'lov sozlangan bo'lsa)."""
-    order = await db.get_order(order_id)
-    if payment_providers() and order and order.get("payment_status") != "paid":
-        await message.answer(t("choose_payment", lang), reply_markup=kb.payment_kb(order_id, lang))
-
-
 def _order_payable(order, user_id: int) -> bool:
     return (
         order is not None

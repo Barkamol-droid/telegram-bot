@@ -7,12 +7,13 @@ from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
 from aiogram.fsm.storage.memory import MemoryStorage
-from aiogram.types import BotCommand
+from aiogram.types import BotCommand, MenuButtonWebApp, WebAppInfo
 
 import db
-from config import ADMIN_IDS, BOT_TOKEN, payment_providers
+from config import ADMIN_IDS, BOT_TOKEN, PORT, WEBAPP_URL, payment_providers
 from handlers import admin, bonus, common, payment, user
 from i18n import LangMiddleware
+from webapp.server import start_web_server
 
 
 async def main():
@@ -43,9 +44,19 @@ async def main():
     await bot.set_my_commands([BotCommand(command="start", description="Botni ishga tushirish")])
     for code, description in {"ru": "Запустить бота", "kk": "Ботты іске қосу"}.items():
         await bot.set_my_commands([BotCommand(command="start", description=description)], language_code=code)
+    # Sayt ko'rinishi (Mini App) uchun veb-server — bot bilan bitta jarayonda
+    runner = await start_web_server(bot, PORT)
+    if WEBAPP_URL:
+        await bot.set_chat_menu_button(menu_button=MenuButtonWebApp(text="🛍 Shop", web_app=WebAppInfo(url=WEBAPP_URL)))
+        logging.info("Sayt manzili: %s", WEBAPP_URL)
+    else:
+        logging.warning("WEBAPP_URL yo'q — sayt tugmalari ko'rsatilmaydi (Railway'da «Generate Domain» qiling)")
     await bot.delete_webhook(drop_pending_updates=True)
     logging.info("Bot ishga tushdi")
-    await dp.start_polling(bot)
+    try:
+        await dp.start_polling(bot)
+    finally:
+        await runner.cleanup()
 
 
 if __name__ == "__main__":

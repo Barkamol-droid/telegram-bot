@@ -20,6 +20,7 @@ class AddProduct(StatesGroup):
     price = State()
     sizes = State()
     photo = State()
+    video = State()
 
 
 class Broadcast(StatesGroup):
@@ -38,3 +39,7 @@ class PromoForm(StatesGroup):
 class BonusSend(StatesGroup):
     recipient = State()
     amount = State()
+
+
+class EditMedia(StatesGroup):
+    wait = State()

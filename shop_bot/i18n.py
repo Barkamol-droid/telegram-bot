@@ -471,6 +471,16 @@ TEXTS: dict[str, dict[str, str]] = {
         "tg": "💎 Фармоиш пурра бо бриллиантҳо пардохт шуд — пардохти иловагӣ лозим нест!",
         "kk": "💎 Тапсырыс толығымен бриллианттармен төленді — қосымша төлем қажет емес!",
     },
+    # ---------------- Sayt (Mini App) va video ----------------
+    "btn_video": {"uz": "🎬 Videoni ko'rish", "ru": "🎬 Смотреть видео", "tg": "🎬 Тамошои видео", "kk": "🎬 Бейнені көру"},
+    "btn_open_shop": {"uz": "🛍 Do'konni ochish", "ru": "🛍 Открыть магазин", "tg": "🛍 Кушодани мағоза", "kk": "🛍 Дүкенді ашу"},
+    "menu_shop": {"uz": "🛍 Do'kon", "ru": "🛍 Магазин", "tg": "🛍 Мағоза", "kk": "🛍 Дүкен"},
+    "open_shop_hint": {
+        "uz": "🛍 Do'konimizni chiroyli ko'rinishda oching — rasm va videolar bilan:",
+        "ru": "🛍 Откройте наш магазин в удобном виде — с фото и видео:",
+        "tg": "🛍 Мағозаи моро дар намуди зебо кушоед — бо акс ва видео:",
+        "kk": "🛍 Дүкенімізді әдемі көріністе ашыңыз — фото және бейнелермен:",
+    },
     # ---------------- Aksiya ----------------
     "promo_title_1111": {
         "uz": "🔥 11.11 MEGA AKSIYA", "ru": "🔥 МЕГА-АКЦИЯ 11.11",
@@ -505,8 +515,57 @@ TEXTS: dict[str, dict[str, str]] = {
     "dur_m": {"uz": "daqiqa", "ru": "мин", "tg": "дақиқа", "kk": "мин"},
 }
 
+# Sayt (Mini App) uchun qo'shimcha matnlar
+WEB_TEXTS: dict[str, dict[str, str]] = {
+    "search": {"uz": "Qidirish...", "ru": "Поиск...", "tg": "Ҷустуҷӯ...", "kk": "Іздеу..."},
+    "all": {"uz": "Hammasi", "ru": "Все", "tg": "Ҳама", "kk": "Барлығы"},
+    "nothing_found": {"uz": "Hech narsa topilmadi", "ru": "Ничего не найдено", "tg": "Ҳеҷ чиз ёфт нашуд", "kk": "Ештеңе табылмады"},
+    "add_to_cart": {"uz": "Savatga qo'shish", "ru": "Добавить в корзину", "tg": "Ба сабад илова", "kk": "Себетке қосу"},
+    "added": {"uz": "Savatga qo'shildi ✓", "ru": "Добавлено в корзину ✓", "tg": "Ба сабад илова шуд ✓", "kk": "Себетке қосылды ✓"},
+    "go_cart": {"uz": "Savatga o'tish", "ru": "Перейти в корзину", "tg": "Ба сабад гузаштан", "kk": "Себетке өту"},
+    "cart": {"uz": "Savat", "ru": "Корзина", "tg": "Сабад", "kk": "Себет"},
+    "cart_empty": {"uz": "Savat bo'sh", "ru": "Корзина пуста", "tg": "Сабад холӣ аст", "kk": "Себет бос"},
+    "checkout": {"uz": "Rasmiylashtirish", "ru": "Оформить заказ", "tg": "Ба расмият даровардан", "kk": "Ресімдеу"},
+    "name": {"uz": "Ismingiz", "ru": "Ваше имя", "tg": "Номи шумо", "kk": "Атыңыз"},
+    "phone": {"uz": "Telefon raqamingiz", "ru": "Номер телефона", "tg": "Рақами телефон", "kk": "Телефон нөмірі"},
+    "address": {"uz": "Yetkazib berish manzili", "ru": "Адрес доставки", "tg": "Суроғаи расонидан", "kk": "Жеткізу мекенжайы"},
+    "comment": {"uz": "Izoh (ixtiyoriy)", "ru": "Комментарий (необязательно)", "tg": "Шарҳ (ихтиёрӣ)", "kk": "Пікір (міндетті емес)"},
+    "comment_ph": {
+        "uz": "Sovg'a qadoqlash, otkritka yozuvi, qulay vaqt...", "ru": "Подарочная упаковка, текст открытки, удобное время...",
+        "tg": "Бастабандии тӯҳфавӣ, матни открытка, вақти мувофиқ...", "kk": "Сыйлық орамасы, ашықхат мәтіні, ыңғайлы уақыт...",
+    },
+    "place_order": {"uz": "Buyurtma berish", "ru": "Оформить заказ", "tg": "Фармоиш додан", "kk": "Тапсырыс беру"},
+    "use_bonus": {
+        "uz": "{n} 💎 ishlatish (−{value})", "ru": "Использовать {n} 💎 (−{value})",
+        "tg": "Истифодаи {n} 💎 (−{value})", "kk": "{n} 💎 пайдалану (−{value})",
+    },
+    "subtotal": {"uz": "Mahsulotlar", "ru": "Товары", "tg": "Маҳсулотҳо", "kk": "Тауарлар"},
+    "order_done": {"uz": "Buyurtma qabul qilindi!", "ru": "Заказ принят!", "tg": "Фармоиш қабул шуд!", "kk": "Тапсырыс қабылданды!"},
+    "order_done_text": {
+        "uz": "Buyurtma #{id} rasmiylashtirildi. To'lov usulini bot chatida tanlang — u yerga xabar yubordik.",
+        "ru": "Заказ №{id} оформлен. Выберите способ оплаты в чате с ботом — мы отправили туда сообщение.",
+        "tg": "Фармоиши №{id} ба расмият дароварда шуд. Усули пардохтро дар чати бот интихоб кунед — мо ба он ҷо паём фиристодем.",
+        "kk": "№{id} тапсырыс ресімделді. Төлем тәсілін бот чатында таңдаңыз — біз сол жерге хабар жібердік.",
+    },
+    "go_chat": {"uz": "Chatga qaytish", "ru": "Вернуться в чат", "tg": "Бозгашт ба чат", "kk": "Чатқа оралу"},
+    "continue_shopping": {"uz": "Xaridni davom ettirish", "ru": "Продолжить покупки", "tg": "Идомаи харид", "kk": "Сатып алуды жалғастыру"},
+    "photo": {"uz": "Rasm", "ru": "Фото", "tg": "Акс", "kk": "Фото"},
+    "video": {"uz": "Video", "ru": "Видео", "tg": "Видео", "kk": "Бейне"},
+    "description": {"uz": "Tavsif", "ru": "Описание", "tg": "Тавсиф", "kk": "Сипаттама"},
+    "size": {"uz": "O'lcham", "ru": "Размер", "tg": "Андоза", "kk": "Өлшем"},
+    "quantity": {"uz": "Miqdor", "ru": "Количество", "tg": "Миқдор", "kk": "Саны"},
+    "open_in_telegram": {
+        "uz": "Bu sahifani Telegram'dagi @{bot} bot orqali oching.", "ru": "Откройте эту страницу через бота @{bot} в Telegram.",
+        "tg": "Ин саҳифаро тавассути боти @{bot} дар Telegram кушоед.", "kk": "Бұл бетті Telegram-дағы @{bot} боты арқылы ашыңыз.",
+    },
+    "error": {"uz": "Xatolik yuz berdi. Qayta urinib ko'ring.", "ru": "Произошла ошибка. Попробуйте ещё раз.", "tg": "Хатогӣ рух дод. Боз кӯшиш кунед.", "kk": "Қате орын алды. Қайта көріңіз."},
+    "fill_required": {"uz": "Iltimos, maydonlarni to'g'ri to'ldiring", "ru": "Пожалуйста, заполните поля правильно", "tg": "Лутфан, майдонҳоро дуруст пур кунед", "kk": "Өрістерді дұрыс толтырыңыз"},
+    "your_bonus": {"uz": "Brilliantlaringiz", "ru": "Ваши бриллианты", "tg": "Бриллиантҳои шумо", "kk": "Бриллианттарыңыз"},
+    "language": {"uz": "Til", "ru": "Язык", "tg": "Забон", "kk": "Тіл"},
+}
+
 # Har bir kalit uchun barcha tillar borligini tekshirish (dasturchi xatolarini erta topish)
-for _key, _vals in TEXTS.items():
+for _key, _vals in [*TEXTS.items(), *WEB_TEXTS.items()]:
     assert set(_vals) == set(LANGS), f"Tarjima yetishmaydi: {_key}"
 
 

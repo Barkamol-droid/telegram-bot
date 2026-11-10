@@ -78,6 +78,14 @@ def is_test_token(provider: str) -> bool:
 BONUS_STEP = int(os.getenv("BONUS_STEP", "100000"))
 BONUS_VALUE = int(os.getenv("BONUS_VALUE", "1000"))
 
+# Sayt ko'rinishi (Telegram Mini App). Railway'da «Generate Domain» qilinganda RAILWAY_PUBLIC_DOMAIN
+# avtomatik paydo bo'ladi; boshqa hostingda WEBAPP_URL ni qo'lda bering (https:// bilan).
+PORT = int(os.getenv("PORT", "8080"))
+_public_domain = os.getenv("RAILWAY_PUBLIC_DOMAIN", "").strip()
+WEBAPP_URL = (os.getenv("WEBAPP_URL", "").strip() or (f"https://{_public_domain}" if _public_domain else "")).rstrip("/")
+# Bot API orqali yuklab olinadigan fayl chegarasi (videolar saytda shu hajmgacha ko'rinadi)
+MAX_WEB_MEDIA_BYTES = 20 * 1024 * 1024
+
 # Aloqa telefoni («☎️ Aloqa» tugmasida ko'rsatiladi)
 SHOP_PHONE = os.getenv("SHOP_PHONE", "+998900441678").strip()
 

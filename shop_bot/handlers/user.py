@@ -11,7 +11,7 @@ import db
 import keyboards as kb
 from config import SHOP_NAME, SHOP_PHONE, _env_text, all_admin_ids, fmt_phone, is_admin
 from db import product_sizes
-from handlers.payment import offer_payment
+from services import finish_order
 from i18n import all_texts, loc, t
 from states import OrderForm
 
@@ -23,7 +23,7 @@ async def show(callback: CallbackQuery, text: str, markup: InlineKeyboardMarkup 
     """Inline xabarni yangilaydi. Rasmli xabarni matnga o'zgartirib bo'lmagani uchun
     kerak bo'lsa eski xabarni o'chirib, yangisini yuboradi."""
     msg = callback.message
-    if msg.photo:
+    if msg.photo or msg.video:
         try:
             await msg.delete()
         except TelegramBadRequest:
@@ -57,6 +57,9 @@ async def categories_view(lang: str) -> tuple[str, InlineKeyboardMarkup | None]:
 # ---------------- Katalog ----------------
 @router.message(F.text.in_(all_texts("btn_catalog")))
 async def catalog(message: Message, lang: str):
+    shop_kb = kb.open_shop_kb(lang)
+    if shop_kb:
+        await message.answer(t("open_shop_hint", lang), reply_markup=shop_kb)
     text, markup = await categories_view(lang)
     await message.answer(text, reply_markup=markup)
 
@@ -101,16 +104,31 @@ async def cb_product(callback: CallbackQuery, lang: str):
     promo = await db.get_promo()
     sizes = product_sizes(product)
     text = kb.product_text(product, lang, promo, sizes)
-    markup = kb.product_kb(product["id"], product["category_id"], lang, sizes=sizes)
-    if product["photo_id"]:
+    # Rasm bo'lsa — rasm kartasi (+ «Videoni ko'rish» tugmasi); faqat video bo'lsa — video kartasi
+    has_video_button = bool(product.get("video_id") and product["photo_id"])
+    markup = kb.product_kb(product["id"], product["category_id"], lang, sizes=sizes, has_video=has_video_button)
+    if product["photo_id"] or product.get("video_id"):
         try:
             await callback.message.delete()
         except TelegramBadRequest:
             pass
-        await callback.message.answer_photo(product["photo_id"], caption=text, reply_markup=markup)
+        if product["photo_id"]:
+            await callback.message.answer_photo(product["photo_id"], caption=text, reply_markup=markup)
+        else:
+            await callback.message.answer_video(product["video_id"], caption=text, reply_markup=markup)
         await callback.answer()
     else:
         await show(callback, text, markup)
+
+
+@router.callback_query(F.data.startswith("pvid:"))
+async def cb_product_video(callback: CallbackQuery, lang: str):
+    product = await db.get_product(int(callback.data.split(":")[1]))
+    if not product or not product.get("video_id"):
+        await callback.answer(t("not_found_product", lang), show_alert=True)
+        return
+    await callback.message.answer_video(product["video_id"], caption=f"🎬 {escape(loc(product, 'name', lang))}")
+    await callback.answer()
 
 
 async def _update_card(callback: CallbackQuery, lang: str, product_id: int, qty: int, size: str):
@@ -124,9 +142,10 @@ async def _update_card(callback: CallbackQuery, lang: str, product_id: int, qty:
     sizes = product_sizes(product)
     if size and size not in sizes:
         size = ""
+    has_video_button = bool(product.get("video_id") and product["photo_id"])
     try:
         await callback.message.edit_reply_markup(
-            reply_markup=kb.product_kb(product_id, product["category_id"], lang, qty, sizes, size)
+            reply_markup=kb.product_kb(product_id, product["category_id"], lang, qty, sizes, size, has_video_button)
         )
     except TelegramBadRequest:
         pass
@@ -369,20 +388,7 @@ async def cb_order_confirm(callback: CallbackQuery, state: FSMContext, bot: Bot,
         callback,
         f"{t('order_accepted', lang)}\n\n{kb.order_text(order, items, lang)}\n\n{t('order_thanks', lang)}",
     )
-    if order["payment_method"] == "bonus":
-        await callback.message.answer(t("paid_by_bonus", lang))
-    else:
-        await offer_payment(callback.message, order_id, lang)
-
-    # Adminlarga xabar (o'zbek tilida)
-    admin_text = "🔔 <b>Yangi buyurtma!</b>\n\n" + kb.order_text(order, items, "uz", for_admin=True)
-    for admin_id in all_admin_ids():
-        try:
-            await bot.send_message(admin_id, admin_text, reply_markup=kb.admin_order_kb(order_id))
-            if order["latitude"] is not None:
-                await bot.send_location(admin_id, order["latitude"], order["longitude"])
-        except Exception as e:  # admin botni bloklagan bo'lishi mumkin
-            log.warning("Adminga (%s) xabar yuborilmadi: %s", admin_id, e)
+    await finish_order(bot, order_id, lang, send_summary=False)
 
 
 @router.callback_query(F.data.in_({"order_confirm", "order_cancel"}))
