@@ -291,6 +291,59 @@ TEXTS: dict[str, dict[str, str]] = {
         "tg": "🎉 Шумо <b>админи</b> боти <b>{shop}</b> таъин шудед!\n\nАз тугмаи «⚙️ Admin panel» дар поён истифода баред.",
         "kk": "🎉 Сіз <b>{shop}</b> ботының <b>әкімшісі</b> болып тағайындалдыңыз!\n\nТөмендегі «⚙️ Admin panel» түймесін пайдаланыңыз.",
     },
+    # ---------------- To'lov ----------------
+    "choose_payment": {
+        "uz": "💳 To'lov usulini tanlang:", "ru": "💳 Выберите способ оплаты:",
+        "tg": "💳 Усули пардохтро интихоб кунед:", "kk": "💳 Төлем тәсілін таңдаңыз:",
+    },
+    "btn_pay_cash": {
+        "uz": "💵 Naqd (qabul qilganda)", "ru": "💵 Наличными при получении",
+        "tg": "💵 Нақд (ҳангоми гирифтан)", "kk": "💵 Алғанда қолма-қол",
+    },
+    "btn_pay_order": {"uz": "💳 #{id} ni to'lash", "ru": "💳 Оплатить №{id}", "tg": "💳 Пардохти №{id}", "kk": "💳 №{id} төлеу"},
+    "invoice_title": {"uz": "Buyurtma #{id}", "ru": "Заказ №{id}", "tg": "Фармоиш №{id}", "kk": "Тапсырыс №{id}"},
+    "invoice_desc": {
+        "uz": "{shop} — zargarlik buyumlari: {items}", "ru": "{shop} — ювелирные украшения: {items}",
+        "tg": "{shop} — ороишоти заргарӣ: {items}", "kk": "{shop} — зергерлік бұйымдар: {items}",
+    },
+    "pay_hint": {
+        "uz": "👇 Quyidagi «To'lash» tugmasini bosing. To'lov {provider} orqali xavfsiz amalga oshiriladi.",
+        "ru": "👇 Нажмите кнопку «Оплатить» ниже. Оплата проходит безопасно через {provider}.",
+        "tg": "👇 Тугмаи «Пардохт»-ро дар поён пахш кунед. Пардохт тавассути {provider} бехатар анҷом дода мешавад.",
+        "kk": "👇 Төмендегі «Төлеу» түймесін басыңыз. Төлем {provider} арқылы қауіпсіз жүзеге асады.",
+    },
+    "pay_ok": {
+        "uz": "✅ <b>To'lov qabul qilindi!</b>\n\nBuyurtma #{id} uchun {amount} {provider} orqali to'landi. Rahmat! 💎",
+        "ru": "✅ <b>Оплата получена!</b>\n\nЗаказ №{id} оплачен через {provider}: {amount}. Спасибо! 💎",
+        "tg": "✅ <b>Пардохт қабул шуд!</b>\n\nФармоиши №{id} тавассути {provider} пардохт шуд: {amount}. Ташаккур! 💎",
+        "kk": "✅ <b>Төлем қабылданды!</b>\n\n№{id} тапсырыс {provider} арқылы төленді: {amount}. Рахмет! 💎",
+    },
+    "pay_cash_ok": {
+        "uz": "💵 Yaxshi! Buyurtma #{id} uchun to'lovni mahsulotni qabul qilganda naqd amalga oshirasiz.",
+        "ru": "💵 Хорошо! Оплату заказа №{id} вы произведёте наличными при получении.",
+        "tg": "💵 Хуб! Пардохти фармоиши №{id}-ро ҳангоми гирифтани маҳсулот нақд анҷом медиҳед.",
+        "kk": "💵 Жақсы! №{id} тапсырыстың төлемін тауарды алғанда қолма-қол жасайсыз.",
+    },
+    "pay_unavailable": {
+        "uz": "Bu buyurtmani to'lab bo'lmaydi: u bekor qilingan yoki allaqachon to'langan.",
+        "ru": "Этот заказ нельзя оплатить: он отменён или уже оплачен.",
+        "tg": "Ин фармоишро пардохт кардан мумкин нест: он бекор шудааст ё аллакай пардохт шудааст.",
+        "kk": "Бұл тапсырысты төлеу мүмкін емес: ол тоқтатылған немесе бұрын төленген.",
+    },
+    "pay_failed": {
+        "uz": "⚠️ Onlayn to'lovni boshlab bo'lmadi (summa chegaradan tashqarida bo'lishi mumkin). "
+              "Iltimos, boshqa usulni tanlang yoki biz bilan bog'laning: {phone}",
+        "ru": "⚠️ Не удалось начать онлайн-оплату (возможно, сумма вне допустимых пределов). "
+              "Выберите другой способ или свяжитесь с нами: {phone}",
+        "tg": "⚠️ Пардохти онлайнро оғоз кардан нашуд (шояд маблағ аз ҳад берун аст). "
+              "Усули дигарро интихоб кунед ё бо мо тамос гиред: {phone}",
+        "kk": "⚠️ Онлайн төлемді бастау мүмкін болмады (сома шектен тыс болуы мүмкін). "
+              "Басқа тәсілді таңдаңыз немесе бізбен байланысыңыз: {phone}",
+    },
+    "payment": {"uz": "💳 To'lov", "ru": "💳 Оплата", "tg": "💳 Пардохт", "kk": "💳 Төлем"},
+    "pay_status_paid": {"uz": "✅ To'langan ({method})", "ru": "✅ Оплачено ({method})", "tg": "✅ Пардохт шуд ({method})", "kk": "✅ Төленді ({method})"},
+    "pay_status_cash": {"uz": "💵 Naqd, qabul qilganda", "ru": "💵 Наличными при получении", "tg": "💵 Нақд, ҳангоми гирифтан", "kk": "💵 Алғанда қолма-қол"},
+    "pay_status_unpaid": {"uz": "⏳ To'lanmagan", "ru": "⏳ Не оплачено", "tg": "⏳ Пардохт нашудааст", "kk": "⏳ Төленбеген"},
     # ---------------- Aksiya ----------------
     "promo_title_1111": {
         "uz": "🔥 11.11 MEGA AKSIYA", "ru": "🔥 МЕГА-АКЦИЯ 11.11",

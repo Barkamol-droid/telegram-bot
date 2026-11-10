@@ -195,6 +195,11 @@ _EXTRA_COLUMNS = [
     ("orders", "discount", f"{_T['int']} NOT NULL DEFAULT 0"),
     ("orders", "lang", "TEXT"),
     ("order_items", "name_i18n", "TEXT"),
+    ("orders", "payment_method", "TEXT"),
+    ("orders", "payment_status", "TEXT NOT NULL DEFAULT 'unpaid'"),
+    ("orders", "paid_at", "TEXT"),
+    ("orders", "payment_charge_id", "TEXT"),
+    ("orders", "provider_charge_id", "TEXT"),
 ]
 
 
@@ -462,6 +467,26 @@ async def get_order(order_id: int):
     return await _fetchone("SELECT * FROM orders WHERE id = ?", (order_id,))
 
 
+async def set_payment_method(order_id: int, method: str):
+    await _execute(
+        "UPDATE orders SET payment_method = ? WHERE id = ? AND payment_status <> 'paid'", (method, order_id)
+    )
+
+
+async def mark_paid(order_id: int, method: str, charge_id: str, provider_charge_id: str) -> bool:
+    """Buyurtmani to'langan deb belgilaydi. Avval to'langan bo'lsa — False (takroriy xabar)."""
+    async with _tx() as db:
+        row = await db.fetchone("SELECT payment_status FROM orders WHERE id = ?", (order_id,))
+        if not row or row["payment_status"] == "paid":
+            return False
+        await db.execute(
+            "UPDATE orders SET payment_status = 'paid', payment_method = ?, paid_at = ?, "
+            "payment_charge_id = ?, provider_charge_id = ? WHERE id = ?",
+            (method, _now(), charge_id, provider_charge_id, order_id),
+        )
+    return True
+
+
 async def get_order_items(order_id: int):
     return await _fetchall("SELECT * FROM order_items WHERE order_id = ?", (order_id,))
 
@@ -489,10 +514,15 @@ async def get_stats() -> dict:
             "SELECT COALESCE(SUM(total), 0) AS s FROM orders WHERE status = 'delivered'"
         )
         products = await db.fetchone("SELECT COUNT(*) AS n FROM products WHERE is_active = 1")
+        paid = await db.fetchone(
+            "SELECT COUNT(*) AS n, COALESCE(SUM(total), 0) AS s FROM orders WHERE payment_status = 'paid'"
+        )
     return {
         "users": int(users["n"]),
         "orders": int(orders["n"]),
         "new_orders": int(new_orders["n"]),
         "revenue": int(revenue["s"]),
         "products": int(products["n"]),
+        "paid_orders": int(paid["n"]),
+        "paid_sum": int(paid["s"]),
     }

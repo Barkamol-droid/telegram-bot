@@ -11,6 +11,7 @@ import db
 import keyboards as kb
 from config import SHOP_NAME, SHOP_PHONE, _env_text, all_admin_ids, fmt_phone, is_admin
 from db import product_sizes
+from handlers.payment import offer_payment
 from i18n import all_texts, loc, t
 from states import OrderForm
 
@@ -346,6 +347,7 @@ async def cb_order_confirm(callback: CallbackQuery, state: FSMContext, bot: Bot,
         callback,
         f"{t('order_accepted', lang)}\n\n{kb.order_text(order, items, lang)}\n\n{t('order_thanks', lang)}",
     )
+    await offer_payment(callback.message, order_id, lang)
 
     # Adminlarga xabar (o'zbek tilida)
     admin_text = "🔔 <b>Yangi buyurtma!</b>\n\n" + kb.order_text(order, items, "uz", for_admin=True)
@@ -374,9 +376,9 @@ async def my_orders(message: Message, lang: str):
     for o in orders:
         lines.append(
             f"#{o['id']} • {o['created_at']} • {kb.fmt_price(o['total'], lang)}\n"
-            f"    {kb.status_label(o['status'], lang)}"
+            f"    {kb.status_label(o['status'], lang)} • {kb.payment_label(o, lang)}"
         )
-    await message.answer("\n".join(lines))
+    await message.answer("\n".join(lines), reply_markup=kb.unpaid_orders_kb(orders, lang))
 
 
 @router.message(F.text.in_(all_texts("btn_about")))

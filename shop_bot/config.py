@@ -56,6 +56,24 @@ def channel_url() -> str | None:
 # Bot orqali qo'shilgan adminlar (bazadan yuklanadi, db.init_db / db.add_admin yangilaydi)
 EXTRA_ADMINS: set[int] = set()
 
+# Onlayn to'lov: BotFather → Payments bo'limidan olingan provider tokenlar.
+# Berilmasa, shu to'lov usuli ko'rsatilmaydi (faqat naqd to'lov qoladi).
+PAYMENT_TOKENS = {
+    "click": os.getenv("CLICK_TOKEN", "").strip(),
+    "payme": os.getenv("PAYME_TOKEN", "").strip(),
+}
+PAYMENT_NAMES = {"click": "Click", "payme": "Payme"}
+
+
+def payment_providers() -> list[str]:
+    """Sozlangan onlayn to'lov tizimlari (tartib: Click, Payme)."""
+    return [name for name, token in PAYMENT_TOKENS.items() if token]
+
+
+def is_test_token(provider: str) -> bool:
+    return ":TEST:" in PAYMENT_TOKENS.get(provider, "")
+
+
 # Aloqa telefoni («☎️ Aloqa» tugmasida ko'rsatiladi)
 SHOP_PHONE = os.getenv("SHOP_PHONE", "+998900441678").strip()
 

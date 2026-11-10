@@ -15,6 +15,7 @@ aksiyalar (masalan 11.11), uzuk o'lchamini tanlash, savat, buyurtma berish va ad
 - ✅ Buyurtma berish — ism, telefon (kontakt tugmasi), manzil yoki joylashuv, izoh (sovg'a qadoqlash,
   otkritka yozuvi), tasdiqlash
 - 💎 Biz haqimizda, 📢 Kanalimiz, ☎️ Aloqa
+- 💳 To'lov: Click, Payme (Telegram ichida, kartadan) yoki naqd — qabul qilganda
 - 📦 Buyurtmalarim — oxirgi buyurtmalar va ularning holati
 - 🔔 Buyurtma holati o'zgarganda xabarnoma
 
@@ -56,11 +57,27 @@ python main.py
 | `CHANNEL`      | Telegram kanal (standart: `@azure_jewelry`, bo'sh — tugma chiqmaydi) |
 | `ABOUT_TEXT`   | «💎 Biz haqimizda» matni (ixtiyoriy)                          |
 | `SHOP_PHONE`   | «☎️ Aloqa» da ko'rsatiladigan telefon (standart: `+998900441678`) |
+| `CLICK_TOKEN`  | Click provider token (BotFather → Payments). Bo'lmasa, Click tugmasi chiqmaydi |
+| `PAYME_TOKEN`  | Payme provider token (BotFather → Payments). Bo'lmasa, Payme tugmasi chiqmaydi |
 | `TIMEZONE`     | Vaqt mintaqasi (standart: `Asia/Tashkent`) — aksiya vaqti shu bo'yicha |
 | `CONTACT_TEXT` | «☎️ Aloqa» tugmasi matni (`\n` — yangi qator). Tilga xos: `CONTACT_TEXT_RU`, `_TG`, `_KK` |
 
 > ⚠️ Tokenni hech qachon kodga yozmang va GitHub'ga yuklamang — faqat `.env` yoki hosting
 > sozlamalaridagi environment variable orqali bering.
+
+## Onlayn to'lov (Click, Payme)
+
+To'lov **Telegram Payments** orqali ishlaydi — alohida server yoki domen kerak emas.
+
+1. @BotFather → `/mybots` → bot → **Payments** → **Click Uzbekistan** yoki **Payme**.
+2. Avval **TEST** tokenni oling (`...:TEST:...`) — haqiqiy pul yechilmaydi, sinab ko'rish uchun.
+3. Tokenni Railway Variables'ga `CLICK_TOKEN` / `PAYME_TOKEN` sifatida qo'ying.
+4. Haqiqiy to'lov uchun Click/Payme bilan **merchant shartnoma** tuzing (MChJ yoki YaTT kerak),
+   so'ng BotFather'dan **LIVE** token olib, test token o'rniga qo'ying.
+
+Mijoz buyurtmadan keyin to'lov usulini tanlaydi; to'lov muvaffaqiyatli bo'lsa buyurtma «✅ To'langan»
+bo'ladi va adminlarga xabar boradi. To'lanmagan buyurtmani «📦 Buyurtmalarim» dan keyinroq ham to'lash mumkin.
+To'langan buyurtma bekor qilinsa, bot pulni Click/Payme kabinetida qaytarish kerakligini eslatadi.
 
 ## Fayllar tuzilishi
 
@@ -74,6 +91,7 @@ shop_bot/
 └── handlers/
     ├── common.py    # /start, bekor qilish
     ├── user.py      # katalog, savat, buyurtma
+    ├── payment.py   # Click, Payme, naqd to'lov
     └── admin.py     # admin panel
 ```
 

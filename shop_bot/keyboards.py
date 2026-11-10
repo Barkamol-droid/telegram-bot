@@ -11,7 +11,7 @@ from aiogram.types import (
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 import pricing
-from config import SHOP_NAME, channel_url, fmt_price, now
+from config import PAYMENT_NAMES, SHOP_NAME, channel_url, fmt_price, now, payment_providers
 from i18n import LANG_NAMES, fmt_duration, loc, t
 
 BTN_ADMIN = "⚙️ Admin panel"
@@ -241,7 +241,47 @@ def order_text(order, items, lang: str = "uz", for_admin: bool = False) -> str:
         lines.append(f"\n{t('discount', lang)}: -{fmt_price(order['discount'], lang)}")
     lines.append(("" if order.get("discount") else "\n") + f"{t('total', lang)}: <b>{fmt_price(order['total'], lang)}</b>")
     lines.append(f"{t('status', lang)}: {status_label(order['status'], lang)}")
+    lines.append(f"{t('payment', lang)}: {payment_label(order, lang)}")
     return "\n".join(lines)
+
+
+# ---------------- To'lov ----------------
+def payment_label(order, lang: str = "uz") -> str:
+    if order.get("payment_status") == "paid":
+        method = PAYMENT_NAMES.get(order.get("payment_method"), order.get("payment_method") or "")
+        return t("pay_status_paid", lang, method=method)
+    if order.get("payment_method") == "cash":
+        return t("pay_status_cash", lang)
+    return t("pay_status_unpaid", lang)
+
+
+def can_pay_online(order) -> bool:
+    return (
+        bool(payment_providers())
+        and order.get("payment_status") != "paid"
+        and order.get("status") not in ("cancelled", "delivered")
+    )
+
+
+def payment_kb(order_id: int, lang: str, include_cash: bool = True) -> InlineKeyboardMarkup:
+    kb = InlineKeyboardBuilder()
+    for provider in payment_providers():
+        kb.button(text=f"💳 {PAYMENT_NAMES[provider]}", callback_data=f"pay:{order_id}:{provider}")
+    if include_cash:
+        kb.button(text=t("btn_pay_cash", lang), callback_data=f"pay:{order_id}:cash")
+    kb.adjust(2, 1)
+    return kb.as_markup()
+
+
+def unpaid_orders_kb(orders, lang: str) -> InlineKeyboardMarkup | None:
+    kb = InlineKeyboardBuilder()
+    count = 0
+    for o in orders:
+        if can_pay_online(o) and count < 5:
+            kb.button(text=t("btn_pay_order", lang, id=o["id"]), callback_data=f"paymenu:{o['id']}")
+            count += 1
+    kb.adjust(1)
+    return kb.as_markup() if count else None
 
 
 def admin_order_kb(order_id: int) -> InlineKeyboardMarkup:

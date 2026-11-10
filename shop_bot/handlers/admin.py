@@ -16,7 +16,10 @@ from aiogram.types import CallbackQuery, Message, TelegramObject
 import db
 import keyboards as kb
 import pricing
-from config import ADMIN_IDS, SHOP_NAME, TIMEZONE, fmt_price, is_admin, is_owner, now
+from config import (
+    ADMIN_IDS, PAYMENT_NAMES, SHOP_NAME, TIMEZONE, fmt_price, is_admin, is_owner, is_test_token, now,
+    payment_providers,
+)
 from i18n import DEFAULT_LANG, LANG_NAMES, all_texts, parse_multilang, t
 from states import AddCategory, AddProduct, AdminForm, Broadcast, PromoForm
 
@@ -608,6 +611,13 @@ async def cb_order_status(callback: CallbackQuery, bot: Bot):
     except TelegramBadRequest:
         pass
     await callback.answer(f"Holat o'zgardi: {kb.status_label(status)}")
+    if status == "cancelled" and order.get("payment_status") == "paid":
+        method = order.get("payment_method") or ""
+        await callback.message.answer(
+            f"⚠️ Buyurtma #{order_id} <b>onlayn to'langan</b> edi ({method}). Pulni mijozga qaytarishni "
+            f"{method.capitalize()} biznes kabinetida amalga oshiring.\n"
+            f"To'lov ID: <code>{escape(order.get('provider_charge_id') or '-')}</code>"
+        )
     # Mijozga o'z tilida xabar
     lang = order.get("lang") or await db.get_user_lang(order["user_id"]) or DEFAULT_LANG
     try:
@@ -619,6 +629,13 @@ async def cb_order_status(callback: CallbackQuery, bot: Bot):
 
 
 # ================= STATISTIKA =================
+def payment_status_text() -> str:
+    providers = payment_providers()
+    if not providers:
+        return "ulanmagan (faqat naqd). Railway'ga CLICK_TOKEN / PAYME_TOKEN qo'shing"
+    return ", ".join(PAYMENT_NAMES[p] + (" 🧪 test" if is_test_token(p) else " ✅") for p in providers)
+
+
 @router.callback_query(F.data == "adm:stats")
 async def cb_stats(callback: CallbackQuery):
     s = await db.get_stats()
@@ -633,7 +650,9 @@ async def cb_stats(callback: CallbackQuery):
         f"🛍 Faol mahsulotlar: <b>{s['products']}</b>\n"
         f"📦 Jami buyurtmalar: <b>{s['orders']}</b>\n"
         f"🆕 Yangi buyurtmalar: <b>{s['new_orders']}</b>\n"
-        f"💰 Tushum (yetkazilgan): <b>{fmt_price(s['revenue'])}</b>"
+        f"💰 Tushum (yetkazilgan): <b>{fmt_price(s['revenue'])}</b>\n"
+        f"💳 Onlayn to'langan: <b>{s['paid_orders']}</b> ta — <b>{fmt_price(s['paid_sum'])}</b>\n"
+        f"🔌 To'lov tizimlari: {payment_status_text()}"
     )
     await edit(callback, text, kb.admin_menu_kb())
 
