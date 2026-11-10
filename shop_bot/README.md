@@ -42,6 +42,7 @@ python main.py
 |----------------|---------------------------------------------------------------|
 | `BOT_TOKEN`    | [@BotFather](https://t.me/BotFather) dan olingan token        |
 | `ADMIN_IDS`    | Adminlar Telegram ID lari, vergul bilan (ID ni @userinfobot dan bilish mumkin) |
+| `DATABASE_URL` | PostgreSQL manzili (ixtiyoriy). Berilsa, SQLite o'rniga PostgreSQL ishlatiladi |
 | `DB_PATH`      | SQLite fayl nomi (standart: `shop.db`)                        |
 | `SHOP_NAME`    | Do'kon nomi (standart: `Azure Jewelry`)                      |
 | `CHANNEL`      | Telegram kanal (standart: `@azure_jewelry`, bo'sh — tugma chiqmaydi) |
@@ -70,4 +71,7 @@ shop_bot/
 
 `Procfile` (`worker: python main.py`) mavjud — Railway, Render yoki Heroku'da **Root directory**
 sifatida `shop_bot` ni ko'rsating va `BOT_TOKEN`, `ADMIN_IDS` ni environment variable qilib qo'shing.
-SQLite fayli saqlanib qolishi uchun hostingda doimiy disk (volume) ulang.
+Ma'lumotlar o'chib ketmasligi uchun ikki yo'l bor:
+- **PostgreSQL (tavsiya):** Railway'da `+ Add → Database → PostgreSQL` qo'shing va bot servisi
+  Variables bo'limiga `DATABASE_URL` = `${{Postgres.DATABASE_URL}}` yozing.
+- **Volume:** `/data` ga volume ulab, `DB_PATH=/data/shop.db` qiling.

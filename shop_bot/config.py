@@ -9,6 +9,8 @@ ADMIN_IDS = [
     int(x) for x in os.getenv("ADMIN_IDS", "").replace(" ", "").split(",") if x.isdigit()
 ]
 DB_PATH = os.getenv("DB_PATH", "shop.db")
+# PostgreSQL ulanish manzili (masalan Railway Postgres). Berilsa, SQLite o'rniga ishlatiladi
+DATABASE_URL = os.getenv("DATABASE_URL", "").strip()
 CONTACT_TEXT = os.getenv(
     "CONTACT_TEXT", "📞 Biz bilan bog'lanish uchun adminga yozing."
 ).replace("\\n", "\n")
