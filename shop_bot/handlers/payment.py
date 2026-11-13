@@ -28,11 +28,8 @@ CURRENCY = "UZS"
 
 
 async def notify_admins(bot: Bot, text: str):
-    for admin_id in all_admin_ids():
-        try:
-            await bot.send_message(admin_id, text)
-        except Exception as e:
-            log.warning("Adminga (%s) xabar yuborilmadi: %s", admin_id, e)
+    from services import notify_staff
+    await notify_staff(bot, text)
 
 
 def _order_payable(order, user_id: int) -> bool:

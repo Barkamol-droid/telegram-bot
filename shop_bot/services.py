@@ -12,6 +12,28 @@ from i18n import t
 log = logging.getLogger(__name__)
 
 
+async def notify_staff(bot: Bot, text: str, markup=None, location: tuple[float, float] | None = None) -> str:
+    """Xodimlarga xabar: guruh ulangan bo'lsa — guruhga, aks holda (yoki guruhga yetmasa) — har bir adminga.
+    Qaytaradi: "group" yoki "admins"."""
+    group = await db.get_staff_group()
+    if group:
+        try:
+            await bot.send_message(group, text, reply_markup=markup)
+            if location:
+                await bot.send_location(group, *location)
+            return "group"
+        except Exception as e:  # bot guruhdan chiqarilgan bo'lishi mumkin — adminlarga yuboramiz
+            log.warning("Xodimlar guruhiga (%s) yuborilmadi, adminlarga yuborilmoqda: %s", group, e)
+    for admin_id in all_admin_ids():
+        try:
+            await bot.send_message(admin_id, text, reply_markup=markup)
+            if location:
+                await bot.send_location(admin_id, *location)
+        except Exception as e:  # admin botni bloklagan bo'lishi mumkin
+            log.warning("Adminga (%s) xabar yuborilmadi: %s", admin_id, e)
+    return "admins"
+
+
 async def finish_order(bot: Bot, order_id: int, lang: str, send_summary: bool = True) -> bool:
     """Buyurtma yaratilgandan keyin: mijozga xulosa va to'lov usullari, adminlarga xabar.
     Qaytaradi: mijozga Telegram'da xabar yetib bordimi."""
@@ -41,13 +63,8 @@ async def finish_order(bot: Bot, order_id: int, lang: str, send_summary: bool = 
             f"❌ «{escape(p['name'])}» tugadi!" if p["stock"] <= 0 else f"⚠️ «{escape(p['name'])}» dan {p['stock']} ta qoldi"
             for p in low
         ) + "\n<i>Qoldiqni: ✏️ Mahsulotni tahrirlash → 📦 Soni</i>"
-    for admin_id in all_admin_ids():
-        try:
-            await bot.send_message(admin_id, admin_text, reply_markup=kb.admin_order_kb(order_id))
-            if order["latitude"] is not None:
-                await bot.send_location(admin_id, order["latitude"], order["longitude"])
-        except Exception as e:  # admin botni bloklagan bo'lishi mumkin
-            log.warning("Adminga (%s) xabar yuborilmadi: %s", admin_id, e)
+    location = (order["latitude"], order["longitude"]) if order["latitude"] is not None else None
+    await notify_staff(bot, admin_text, kb.admin_order_kb(order_id), location)
     # Kuryer boti yoqilgan bo'lsa — buyurtmani kuryerlarga tarqatish
     try:
         import courier

@@ -11,6 +11,7 @@ from html import escape
 from aiogram import Bot, F, Router
 from aiogram.exceptions import TelegramBadRequest, TelegramRetryAfter
 from aiogram.filters import BaseFilter, Command
+from aiogram.fsm.storage.base import StorageKey
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message, TelegramObject
 
@@ -20,6 +21,7 @@ import keyboards as kb
 import courier
 import pricing
 import translate
+from handlers.group import GROUP_TYPES, STAFF_CALLBACKS
 from config import (
     fmt_phone,
     ADMIN_IDS, BONUS_VALUE, MAX_WEB_MEDIA_BYTES, PAYMENT_NAMES, SHOP_NAME, WEBAPP_URL, TIMEZONE, fmt_price, is_admin, is_owner, is_test_token, now,
@@ -57,9 +59,59 @@ class IsAdmin(BaseFilter):
         return event.from_user is not None and is_admin(event.from_user.id)
 
 
+class AdminOrStaffCallback(BaseFilter):
+    """Adminlar — hamma tugmalar; xodimlar guruhidagi a'zolar (operatorlar) — faqat buyurtma tugmalari."""
+
+    async def __call__(self, callback: CallbackQuery) -> bool:
+        if is_admin(callback.from_user.id):
+            return True
+        message = callback.message
+        return (bool(message) and message.chat.type in GROUP_TYPES
+                and (callback.data or "").startswith(STAFF_CALLBACKS)
+                and await db.get_staff_group() == message.chat.id)
+
+
+class AdminOrStaffMessage(BaseFilter):
+    """Shaxsiy chat: adminlar — hammasi; operator — faqat guruhdan boshlangan kiritish (kuryer haqi, kuryerga javob)."""
+
+    async def __call__(self, message: Message, state: FSMContext) -> bool:
+        if message.chat.type != "private":
+            return False
+        if is_admin(message.from_user.id):
+            return True
+        return await state.get_state() in (CourierFee.amount.state, AdminReply.text.state)
+
+
 router = Router()
-router.message.filter(IsAdmin())
-router.callback_query.filter(IsAdmin())
+router.message.filter(AdminOrStaffMessage())
+router.callback_query.filter(AdminOrStaffCallback())
+
+
+async def private_input(callback: CallbackQuery, state: FSMContext, prompt: str) -> FSMContext | None:
+    """Kiritishni so'rash: shaxsiy chatda — o'sha yerda; guruhda — bosgan odamning shaxsiy chatiga yoziladi
+    (guruh toza qoladi). Qaytaradi: kiritish kutiladigan FSM holati (yoki None — yozib bo'lmadi)."""
+    user = callback.from_user
+    if callback.message.chat.type == "private":
+        await callback.message.answer(prompt, reply_markup=kb.cancel_kb(DEFAULT_LANG))
+        await callback.answer()
+        return state
+    private_state = FSMContext(storage=state.storage,
+                               key=StorageKey(bot_id=callback.bot.id, chat_id=user.id, user_id=user.id))
+    try:
+        await callback.bot.send_message(user.id, prompt, reply_markup=kb.cancel_kb(DEFAULT_LANG))
+    except Exception:
+        me = await callback.bot.me()
+        await callback.answer(f"Avval @{me.username} ga shaxsiy chatda /start bosing, so'ng qayta urining.", show_alert=True)
+        return None
+    await callback.answer("✍️ Botga shaxsiy chatda yozing", show_alert=False)
+    return private_state
+
+
+def actor(callback: CallbackQuery) -> str:
+    """Guruhda kim bosgani (shaxsiy chatda — bo'sh)."""
+    if callback.message and callback.message.chat.type != "private":
+        return f"\n👤 {escape(callback.from_user.full_name)}"
+    return ""
 
 
 async def edit(callback: CallbackQuery, text: str, markup=None):
@@ -285,7 +337,12 @@ async def cb_promo_announce(callback: CallbackQuery):
 # ================= ADMINLAR =================
 async def admins_view(viewer_id: int):
     admins = await db.get_admins()
-    lines = ["👥 <b>Adminlar</b>\n", "<b>Bosh admin(lar)</b> — Railway'dagi ADMIN_IDS:"]
+    group = await db.get_staff_group()
+    lines = ["👥 <b>Adminlar</b>\n",
+             ("📣 Buyurtmalar guruhi: <b>ulangan</b> ✅ (uzish — guruhda /uzish)\n" if group else
+              "📣 Buyurtmalar guruhi: ulanmagan. Yopiq guruh oching, botni qo'shing va guruhda /ulash yozing — "
+              "buyurtmalar shu guruhga keladi, operatorlar ham tugmalarni bosa oladi.\n"),
+             "<b>Bosh admin(lar)</b> — Railway'dagi ADMIN_IDS:"]
     for owner_id in ADMIN_IDS:
         user = await db.get_user(owner_id)
         name = escape(user["full_name"]) if user and user.get("full_name") else "—"
@@ -1283,7 +1340,9 @@ async def cb_order_status(callback: CallbackQuery, bot: Bot):
     items = await db.get_order_items(order_id)
     try:
         await callback.message.edit_text(
-            kb.order_text(order, items, "uz", for_admin=True), reply_markup=kb.admin_order_kb(order_id)
+            kb.order_text(order, items, "uz", for_admin=True)
+            + (f"{actor(callback)}: {kb.status_label(status)}" if actor(callback) else ""),
+            reply_markup=kb.admin_order_kb(order_id),
         )
     except TelegramBadRequest:
         pass
@@ -1379,10 +1438,11 @@ async def cb_courier_fee(callback: CallbackQuery, state: FSMContext):
         prompt = (f"💰 Standart yetkazish haqi (hozir: <b>{fmt_price(await db.get_default_courier_fee())}</b>).\n"
                   "Har bir yangi buyurtmaga shu summa qo'yiladi; alohida buyurtmada «💰 Kuryer haqi» bilan o'zgartirasiz.\n"
                   "Yangi summani yozing, masalan <code>20000</code>:")
-    await state.set_state(CourierFee.amount)
-    await state.update_data(fee_order_id=order_id)
-    await callback.message.answer(prompt, reply_markup=kb.cancel_kb(DEFAULT_LANG))
-    await callback.answer()
+    target = await private_input(callback, state, prompt)
+    if target is None:
+        return
+    await target.set_state(CourierFee.amount)
+    await target.update_data(fee_order_id=order_id)
 
 
 @router.message(CourierFee.amount, F.text)
@@ -1401,7 +1461,14 @@ async def courier_fee_amount(message: Message, state: FSMContext, lang: str):
     await db.set_order_courier_fee(order_id, amount)
     await courier.fee_changed(order_id)
     await message.answer(f"✅ Buyurtma #{order_id} uchun kuryer haqi: <b>{fmt_price(amount)}</b>",
-                         reply_markup=kb.main_menu(lang, True))
+                         reply_markup=kb.main_menu(lang, is_admin(message.from_user.id)))
+    group = await db.get_staff_group()
+    if group:
+        try:
+            await message.bot.send_message(group, f"💰 Buyurtma #{order_id}: kuryer haqi <b>{fmt_price(amount)}</b>"
+                                                  f"\n👤 {escape(message.from_user.full_name)}")
+        except Exception:
+            pass
 
 
 # ---------------- Kuryer muammolari bo'yicha qaror va kuryerga javob ----------------
@@ -1448,17 +1515,17 @@ async def cb_problem_action(callback: CallbackQuery, bot: Bot):
         await callback.message.edit_reply_markup(reply_markup=None)
     except TelegramBadRequest:
         pass
-    await callback.message.answer(f"Buyurtma #{order_id}: {note}")
+    await callback.message.answer(f"Buyurtma #{order_id}: {note}{actor(callback)}")
 
 
 @router.callback_query(F.data.startswith("crep:"))
 async def cb_reply_courier(callback: CallbackQuery, state: FSMContext):
     _, courier_id, order_id = callback.data.split(":")
-    await state.set_state(AdminReply.text)
-    await state.update_data(reply_courier_id=int(courier_id), reply_order_id=order_id)
-    await callback.message.answer(f"✍️ Kuryerga javobingizni yozing (buyurtma #{order_id}):",
-                                  reply_markup=kb.cancel_kb(DEFAULT_LANG))
-    await callback.answer()
+    target = await private_input(callback, state, f"✍️ Kuryerga javobingizni yozing (buyurtma #{order_id}):")
+    if target is None:
+        return
+    await target.set_state(AdminReply.text)
+    await target.update_data(reply_courier_id=int(courier_id), reply_order_id=order_id)
 
 
 @router.message(AdminReply.text, F.text)
@@ -1467,7 +1534,7 @@ async def reply_courier_text(message: Message, state: FSMContext, lang: str):
     await state.clear()
     ok = await courier.reply_to_courier(data["reply_courier_id"], data["reply_order_id"], message.text[:2000])
     await message.answer("✅ Javob kuryerga yuborildi." if ok else "❗️ Kuryerga yuborib bo'lmadi.",
-                         reply_markup=kb.main_menu(lang, True))
+                         reply_markup=kb.main_menu(lang, is_admin(message.from_user.id)))
 
 
 @router.callback_query(F.data == "adm:couriers")

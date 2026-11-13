@@ -12,7 +12,7 @@ from aiogram.types import BotCommand, MenuButtonWebApp, WebAppInfo
 import db
 import courier
 from config import ADMIN_IDS, BOT_TOKEN, COURIER_BOT_TOKEN, PORT, WEBAPP_URL, payment_providers
-from handlers import admin, bonus, common, payment, user
+from handlers import admin, bonus, common, group, payment, user
 from i18n import LangMiddleware
 from webapp.server import start_web_server
 
@@ -40,7 +40,8 @@ async def main():
     dp.callback_query.middleware(LangMiddleware())
     dp.pre_checkout_query.middleware(LangMiddleware())
     # Tartib muhim: payment — user dan oldin (user oxirida hamma xabarni ushlovchi handler bor)
-    dp.include_routers(common.router, admin.router, payment.router, bonus.router, user.router)
+    # group — birinchi: xodimlar guruhidagi xabarlar boshqa handlerlarga o'tmaydi
+    dp.include_routers(group.router, common.router, admin.router, payment.router, bonus.router, user.router)
 
     await bot.set_my_commands([BotCommand(command="start", description="Botni ishga tushirish")])
     for code, description in {"ru": "Запустить бота", "kk": "Ботты іске қосу"}.items():

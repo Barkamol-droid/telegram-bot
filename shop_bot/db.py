@@ -1089,3 +1089,13 @@ async def mark_returned(order_id: int, courier_id: int) -> bool:
             return False
         await db.execute("UPDATE orders SET delivery_status = 'returned' WHERE id = ?", (order_id,))
     return True
+
+
+# ---------------- Xodimlar guruhi (buyurtma xabarlari uchun) ----------------
+async def get_staff_group() -> int | None:
+    value = await get_meta("staff_group")
+    return int(value) if value and value.lstrip("-").isdigit() else None
+
+
+async def set_staff_group(chat_id: int | None):
+    await set_meta("staff_group", str(chat_id) if chat_id else None)

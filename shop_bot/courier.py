@@ -29,7 +29,7 @@ from aiogram.types import (
 import colors as color_mod
 import db
 import keyboards as kb
-from config import all_admin_ids, fmt_phone, fmt_price, now
+from config import fmt_phone, fmt_price, now
 from i18n import DEFAULT_LANG, t
 
 log = logging.getLogger(__name__)
@@ -151,11 +151,8 @@ def _kb(*buttons: tuple[str, str]) -> InlineKeyboardMarkup:
 
 
 async def _notify_admins(text: str, markup=None):
-    for admin_id in all_admin_ids():
-        try:
-            await MAIN_BOT.send_message(admin_id, text, reply_markup=markup)
-        except Exception as e:
-            log.warning("Adminga (%s) xabar yuborilmadi: %s", admin_id, e)
+    from services import notify_staff
+    await notify_staff(MAIN_BOT, text, markup)
 
 
 async def _notify_customer(order: dict, text: str):

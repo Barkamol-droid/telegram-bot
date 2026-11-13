@@ -115,6 +115,17 @@ Do'kon Telegram'dan tashqarida ham ochiladi: `https://<domen>/` — mijoz «Log 
 2. Kirishda mijoz botga xabar yozishga ruxsat beradi — buyurtma xulosasi va Click/Payme to'lov tugmalari Telegram'ga keladi.
 3. Sessiya — 30 kunlik HttpOnly cookie; «🌐 → 🚪 Chiqish» bilan chiqiladi.
 
+## 📣 Xodimlar guruhi (buyurtma xabarlari)
+
+1. Telegram'da yopiq guruh oching (masalan «Azure — Buyurtmalar»), do'kon botini, adminlar va operatorlarni qo'shing.
+2. Guruhda admin `/ulash` yozadi — yangi buyurtmalar, to'lovlar, kuryer xabarlari va ogohlantirishlar shu guruhga keladi
+   (shaxsiy chatlarga emas). `/uzish` — uzish.
+3. Buyurtma tugmalarini (holat, kuryer haqi, kuryer muammolari, kuryerga javob) guruhdagi har bir a'zo bosa oladi;
+   kim bosgani yoziladi. Kuryerlarni tasdiqlash va admin panel — faqat adminlar.
+4. Summa/javob kiritish bosgan odamning shaxsiy chatida so'raladi (botga oldin /start bosilgan bo'lishi kerak).
+5. Bot guruhdagi suhbatga aralashmaydi; guruh supergroup'ga aylansa — yangi ID avtomatik saqlanadi;
+   guruhga yuborib bo'lmasa — xabarlar adminlarning shaxsiy chatiga boradi.
+
 ## 🛵 Kuryer boti
 
 Buyurtmalar alohida kuryer botiga keladi; kuryer «📦 Oldim → 🚚 Yo'ldaman → ✅ Topshirdim» bosqichlarini belgilaydi.
