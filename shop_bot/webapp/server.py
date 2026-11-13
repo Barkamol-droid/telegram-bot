@@ -45,6 +45,7 @@ BOT_KEYS = [
     "promo_ends_in", "promo_starts_in", "promo_footer", "prices_changed", "cart_empty", "bonus_discount_line",
     "btn_catalog", "discount", "bad_name", "bad_phone", "address_short", "dur_d", "dur_h", "dur_m",
     "promo_title_1111", "promo_title_custom", "choose_color_first",
+    "in_stock", "low_stock", "out_of_stock", "btn_out_of_stock", "stock_limit", "stock_changed", "stock_left_item",
 ]
 
 
@@ -71,6 +72,7 @@ def _product_json(p: dict, lang: str, promo: dict | None) -> dict:
         "old_price": old,
         "percent": percent,
         "sizes": product_sizes(p),
+        "stock": db.product_stock(p),
         "colors": [
             {"key": c, "name": color_mod.name(c, lang), "hex": color_mod.hex_color(c)}
             for c in color_mod.product_colors(p)
@@ -87,6 +89,7 @@ def _cart_json(preview: dict, lang: str) -> dict:
             {
                 "product_id": i["product_id"], "size": i["size"], "qty": i["qty"],
                 "color": i["color"], "color_name": color_mod.name(i["color"], lang) if i["color"] else "",
+                "stock": None if i.get("stock") is None else max(int(i["stock"]), 0),
                 "name": loc(i, "name", lang), "price": i["price"], "old_price": i["old_price"],
                 "percent": i["percent"], "subtotal": i["subtotal"],
             }
@@ -95,7 +98,12 @@ def _cart_json(preview: dict, lang: str) -> dict:
         **{k: preview[k] for k in (
             "subtotal", "promo_discount", "balance", "max_usable", "bonus_used", "bonus_discount", "total", "bonus_earned",
         )},
+        "stock_issues": _issues_json(preview.get("stock_issues") or [], lang),
     }
+
+
+def _issues_json(issues: list[dict], lang: str) -> list[dict]:
+    return [{"product_id": i["product_id"], "name": loc(i, "name", lang), "available": i["available"]} for i in issues]
 
 
 def _promo_json(promo: dict | None, category: dict | None, lang: str) -> dict | None:
@@ -193,6 +201,13 @@ async def set_cart(request: web.Request) -> web.Response:
         return web.json_response({"error": "size_required"}, status=400)
     if not sizes:
         size = ""
+    stock = db.product_stock(product)
+    if stock is not None and qty > 0:
+        others = await db.cart_product_qty(user.id, product_id)
+        current = next((i["qty"] for i in (await db.cart_get(user.id))
+                        if i["product_id"] == product_id and i["size"] == size and i["color"] == color), 0)
+        if others - current + qty > stock:
+            return web.json_response({"error": "out_of_stock", "available": stock, "in_cart": others}, status=409)
     colors = color_mod.product_colors(product)
     if qty > 0 and colors and color not in colors:
         return web.json_response({"error": "color_required"}, status=400)
@@ -229,11 +244,19 @@ async def place_order(request: web.Request) -> web.Response:
     preview = await db.order_preview(user.id, use_bonus=use_bonus)
     if not preview["items"]:
         return web.json_response({"error": "cart_empty"}, status=400)
+    if preview["stock_issues"]:
+        return web.json_response({"error": "out_of_stock", "items": _issues_json(preview["stock_issues"], lang),
+                                  "cart": _cart_json(preview, lang)}, status=409)
     if preview["total"] != body.get("expected_total"):
         return web.json_response({"error": "prices_changed", "cart": _cart_json(preview, lang)}, status=409)
 
-    order_id = await db.create_order(user.id, full_name[:64], phone, address[:300], None, None, comment, lang,
-                                     use_bonus=use_bonus)
+    try:
+        order_id = await db.create_order(user.id, full_name[:64], phone, address[:300], None, None, comment, lang,
+                                         use_bonus=use_bonus)
+    except db.OutOfStock as e:
+        fresh = await db.order_preview(user.id, use_bonus=use_bonus)
+        return web.json_response({"error": "out_of_stock", "items": _issues_json(e.items, lang),
+                                  "cart": _cart_json(fresh, lang)}, status=409)
     if not order_id:
         return web.json_response({"error": "cart_empty"}, status=400)
     order = await db.get_order(order_id)
@@ -296,6 +319,39 @@ async def media(request: web.Request) -> web.StreamResponse:
     return web.FileResponse(cached, headers={"Cache-Control": "public, max-age=604800"})
 
 
+# ---------------- Bot avatari (sayt logotipi) ----------------
+LOGO_MAX_AGE = 6 * 3600  # avatar o'zgarsa, 6 soat ichida saytda ham yangilanadi
+_logo_lock = asyncio.Lock()
+
+
+async def logo(request: web.Request) -> web.StreamResponse:
+    """Botning Telegram'dagi avatari — saytdagi logotip va ikonka bot bilan bir xil bo'lishi uchun."""
+    MEDIA_CACHE.mkdir(parents=True, exist_ok=True)
+    path = MEDIA_CACHE / "bot_logo.jpg"
+    missing_marker = MEDIA_CACHE / "bot_logo.none"
+    async with _logo_lock:
+        fresh = path.exists() and time.time() - path.stat().st_mtime < LOGO_MAX_AGE
+        known_missing = missing_marker.exists() and time.time() - missing_marker.stat().st_mtime < LOGO_MAX_AGE
+        if not fresh and not known_missing:
+            bot: Bot = request.app["bot"]
+            try:
+                me = await bot.me()
+                photos = await bot.get_user_profile_photos(me.id, limit=1)
+                if photos.total_count and photos.photos:
+                    tg_file = await bot.get_file(photos.photos[0][-1].file_id)
+                    tmp = MEDIA_CACHE / "bot_logo.part"
+                    await bot.download_file(tg_file.file_path, destination=tmp)
+                    tmp.replace(path)
+                    missing_marker.unlink(missing_ok=True)
+                else:
+                    missing_marker.touch()
+            except Exception as e:
+                log.warning("Bot avatari olinmadi: %s", e)
+    if not path.exists():
+        raise web.HTTPNotFound()
+    return web.FileResponse(path, headers={"Cache-Control": "public, max-age=3600", "Content-Type": "image/jpeg"})
+
+
 # ---------------- Sahifa ----------------
 async def health(request: web.Request) -> web.Response:
     return web.json_response({"ok": True})
@@ -315,6 +371,7 @@ def create_app(bot: Bot) -> web.Application:
     app.router.add_post("/api/order", place_order)
     app.router.add_post("/api/lang", set_lang)
     app.router.add_get("/media/{file_id}", media)
+    app.router.add_get("/logo", logo)
     app.router.add_static("/static/", STATIC_DIR, append_version=True)
     app.router.add_get("/health", health)
     return app

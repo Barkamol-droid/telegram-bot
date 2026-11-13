@@ -111,7 +111,8 @@ async def cb_product(callback: CallbackQuery, lang: str):
     photos = db.product_photos(product)
     has_video_button = bool(product.get("video_id") and photos)
     markup = kb.product_kb(product["id"], product["category_id"], lang, sizes=sizes, has_video=has_video_button,
-                           colors=colors, gallery=(0, len(photos)) if photos else None)
+                           colors=colors, gallery=(0, len(photos)) if photos else None,
+                           sold_out=db.product_stock(product) == 0)
     if photos or product.get("video_id"):
         try:
             await callback.message.delete()
@@ -180,6 +181,11 @@ async def _update_card(callback: CallbackQuery, lang: str, product_id: int, qty:
     if not product:
         await callback.answer(t("not_found_product", lang), show_alert=True)
         return
+    stock = db.product_stock(product)
+    if stock is not None and qty > max(stock, 1):
+        in_cart = await db.cart_product_qty(callback.from_user.id, product_id)
+        await callback.answer(t("stock_limit", lang, n=stock, c=in_cart), show_alert=True)
+        return
     sizes = product_sizes(product)
     colors = color_mod.product_colors(product)
     if size and size not in sizes:
@@ -194,7 +200,7 @@ async def _update_card(callback: CallbackQuery, lang: str, product_id: int, qty:
     try:
         await callback.message.edit_reply_markup(
             reply_markup=kb.product_kb(product_id, product["category_id"], lang, qty, sizes, size, has_video_button,
-                                       colors, ci, gallery)
+                                       colors, ci, gallery, sold_out=stock == 0)
         )
     except TelegramBadRequest:
         pass
@@ -243,6 +249,15 @@ async def cb_add_to_cart(callback: CallbackQuery, lang: str):
         return
     if not sizes:
         size = ""
+    stock = db.product_stock(product)
+    if stock is not None:
+        in_cart = await db.cart_product_qty(callback.from_user.id, product["id"])
+        if stock == 0:
+            await callback.answer(t("out_of_stock", lang), show_alert=True)
+            return
+        if in_cart + qty > stock:
+            await callback.answer(t("stock_limit", lang, n=stock, c=in_cart), show_alert=True)
+            return
     await db.cart_add(callback.from_user.id, product["id"], qty, size, color)
     await callback.answer(
         t("added", lang, name=loc(product, "name", lang), size=kb.variant_label(size, color, lang), qty=qty),
@@ -262,10 +277,14 @@ async def promo_info(message: Message, lang: str):
 
 # ---------------- Savat ----------------
 async def _cart_view(user_id: int, lang: str):
-    items = await db.cart_get(user_id)
+    preview = await db.order_preview(user_id)
+    items = preview["items"]
     if not items:
         return t("cart_empty", lang), None
-    return kb.cart_text(items, lang), kb.cart_kb(items, lang)
+    text = kb.cart_text(items, lang)
+    if preview["stock_issues"]:
+        text += "\n\n" + kb.stock_issues_text(preview["stock_issues"], lang)
+    return text, kb.cart_kb(items, lang)
 
 
 @router.message(F.text.in_(all_texts("btn_cart")))
@@ -301,8 +320,13 @@ async def cb_cart_clear(callback: CallbackQuery, lang: str):
 # ---------------- Buyurtma berish ----------------
 @router.callback_query(F.data == "checkout")
 async def cb_checkout(callback: CallbackQuery, state: FSMContext, lang: str):
-    if not await db.cart_get(callback.from_user.id):
+    preview = await db.order_preview(callback.from_user.id)
+    if not preview["items"]:
         await callback.answer(t("cart_empty", lang), show_alert=True)
+        return
+    if preview["stock_issues"]:
+        await callback.answer()
+        await callback.message.answer(kb.stock_issues_text(preview["stock_issues"], lang))
         return
     await state.set_state(OrderForm.name)
     await callback.message.answer(t("ask_name", lang), reply_markup=kb.cancel_kb(lang))
@@ -439,11 +463,15 @@ async def cb_order_confirm(callback: CallbackQuery, state: FSMContext, bot: Bot,
         return
 
     await state.clear()
-    order_id = await db.create_order(
-        user_id, data["full_name"], data["phone"], data.get("address"),
-        data.get("latitude"), data.get("longitude"), data.get("comment"), lang,
-        use_bonus=data.get("use_bonus", False),
-    )
+    try:
+        order_id = await db.create_order(
+            user_id, data["full_name"], data["phone"], data.get("address"),
+            data.get("latitude"), data.get("longitude"), data.get("comment"), lang,
+            use_bonus=data.get("use_bonus", False),
+        )
+    except db.OutOfStock as e:
+        await show(callback, kb.stock_issues_text(e.items, lang))
+        return
     if not order_id:
         await show(callback, t("cart_empty", lang))
         return

@@ -131,6 +131,8 @@ def products_kb(products, lang: str, promo: dict | None) -> InlineKeyboardMarkup
         label = f"{loc(p, 'name', lang)} — {fmt_price(final, lang)}"
         if percent:
             label += f" 🔥-{percent}%"
+        if p.get("stock") is not None and int(p["stock"]) <= 0:
+            label = f"{t('btn_out_of_stock', lang)} · {label}"
         kb.button(text=label, callback_data=f"prod:{p['id']}")
     kb.button(text=t("btn_back_cats", lang), callback_data="cats")
     kb.adjust(1)
@@ -149,7 +151,7 @@ def open_shop_kb(lang: str, path: str = "") -> InlineKeyboardMarkup | None:
 def product_kb(product_id: int, category_id: int, lang: str, qty: int = 1,
                sizes: list[str] | None = None, size: str = "", has_video: bool = False,
                colors: list[str] | None = None, ci: str = "",
-               gallery: tuple[int, int] | None = None) -> InlineKeyboardMarkup:
+               gallery: tuple[int, int] | None = None, sold_out: bool = False) -> InlineKeyboardMarkup:
     """Mahsulot kartasi: ranglar, o'lchamlar, miqdor, savatga qo'shish.
     ci — tanlangan rangning mahsulot ranglari ro'yxatidagi tartib raqami ("" — tanlanmagan).
     Callback formatlari (oxirgi qism — rang raqami):
@@ -173,12 +175,15 @@ def product_kb(product_id: int, category_id: int, lang: str, qty: int = 1,
             for s in sizes
         ]
         rows += [size_buttons[i:i + 4] for i in range(0, len(size_buttons), 4)]
-    rows.append([
-        InlineKeyboardButton(text="➖", callback_data=f"qty:{product_id}:{qty - 1}:{size}:{ci}"),
-        InlineKeyboardButton(text=f"{qty} {t('pcs', lang)}", callback_data="noop"),
-        InlineKeyboardButton(text="➕", callback_data=f"qty:{product_id}:{qty + 1}:{size}:{ci}"),
-    ])
-    rows.append([InlineKeyboardButton(text=t("btn_add_cart", lang), callback_data=f"add:{product_id}:{qty}:{size}:{ci}")])
+    if sold_out:
+        rows.append([InlineKeyboardButton(text=t("btn_out_of_stock", lang), callback_data="noop")])
+    else:
+        rows.append([
+            InlineKeyboardButton(text="➖", callback_data=f"qty:{product_id}:{qty - 1}:{size}:{ci}"),
+            InlineKeyboardButton(text=f"{qty} {t('pcs', lang)}", callback_data="noop"),
+            InlineKeyboardButton(text="➕", callback_data=f"qty:{product_id}:{qty + 1}:{size}:{ci}"),
+        ])
+        rows.append([InlineKeyboardButton(text=t("btn_add_cart", lang), callback_data=f"add:{product_id}:{qty}:{size}:{ci}")])
     if has_video:
         rows.append([InlineKeyboardButton(text=t("btn_video", lang), callback_data=f"pvid:{product_id}")])
     rows.append([
@@ -208,6 +213,24 @@ def gallery_state(markup: InlineKeyboardMarkup | None) -> tuple[int, int] | None
     return None
 
 
+def stock_line(product: dict, lang: str) -> str:
+    """«📦 Mavjud: 5 dona» / «⚠️ Faqat 2 ta qoldi!» / «❌ Hozircha tugagan»; soni hisoblanmasa — bo'sh."""
+    stock = product.get("stock")
+    if stock is None:
+        return ""
+    stock = max(int(stock), 0)
+    if stock == 0:
+        return t("out_of_stock", lang)
+    if stock < 3:
+        return t("low_stock", lang, n=stock)
+    return t("in_stock", lang, n=stock)
+
+
+def stock_issues_text(issues: list[dict], lang: str) -> str:
+    lines = "\n".join(t("stock_left_item", lang, name=escape(loc(i, "name", lang)), n=i["available"]) for i in issues)
+    return t("stock_changed", lang, items=lines)
+
+
 def price_line(final: int, old: int | None, percent: int | None, lang: str) -> str:
     if old:
         return f"<s>{fmt_price(old, lang)}</s> <b>{fmt_price(final, lang)}</b> 🔥 -{percent}%"
@@ -227,6 +250,9 @@ def product_text(p, lang: str, promo: dict | None, sizes: list[str] | None = Non
         text += f"{t('sizes', lang)}: {escape(', '.join(sizes))}\n{t('choose_size_hint', lang)}\n\n"
     final, old, percent = pricing.price_info(int(p["price"]), p["category_id"], promo)
     text += f"{t('price', lang)}: {price_line(final, old, percent, lang)}"
+    availability = stock_line(p, lang)
+    if availability:
+        text += f"\n{availability}"
     if percent:
         left = fmt_duration((promo["_end"] - now()).total_seconds(), lang)
         text += f"\n{t('promo_ends_in', lang, left=left)}"

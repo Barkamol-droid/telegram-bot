@@ -7,8 +7,10 @@ aksiyalar (masalan 11.11), uzuk o'lchamini tanlash, savat, buyurtma berish va ad
 
 **Mijozlar uchun**
 - 🛍 **Sayt ko'rinishi (Telegram Mini App)**: bot ichida ochiladigan do'kon — mahsulot kartochkalari, qidiruv,
-  kategoriyalar, rasm va 🎬 video, o'lcham tanlash, savat, brilliantlar, buyurtma berish. Telegram mavzusiga
+  kategoriyalar, rasm va 🎬 video, logotip va ikonka — botning Telegram avatari, o'lcham tanlash, savat, brilliantlar, buyurtma berish. Telegram mavzusiga
   (yorug'/qorong'i) moslashadi, 4 tilda. Chat menyusidagi «🛍 Do'kon» tugmasi yoki «🛍 Katalog» orqali ochiladi
+- 📦 Qoldiq: «📦 Mavjud: 5 dona», «⚠️ Faqat 2 ta qoldi!», «❌ Hozircha tugagan» — botda va saytda;
+  mavjudidan ko'p savatga qo'shib/buyurtma qilib bo'lmaydi
 - 🖼 Bir nechta rasm (10 tagacha): botda ⬅️ ➡️ bilan, saytda barmoq bilan suriladigan galereya
 - 🎬 Mahsulot videosi: bot chatida ham («🎬 Videoni ko'rish»), saytda ham
 - 🌐 Til tanlash: birinchi /start da va «🌐 Til» tugmasi orqali (o'zbek, rus, tojik, qozoq)
@@ -33,6 +35,9 @@ aksiyalar (masalan 11.11), uzuk o'lchamini tanlash, savat, buyurtma berish va ad
   «📢 Mijozlarga e'lon qilish» — har bir mijozga o'z tilida xabar; «👁 Mijozlar qanday ko'radi» — 4 tilda ko'rish
 - 💎 Brilliantlar: buyurtma «🚚 Yetkazildi» qilinganda mijozga avtomatik beriladi; bekor qilinsa,
   ishlatilganlari qaytariladi. `/bonus ID SON` — mijozga brilliant sovg'a qilish. Statistikada jami brilliantlar
+- 📦 **Qoldiq**: mahsulot qo'shishda «nechta bor» so'raladi (o'tkazib yuborilsa — soni hisoblanmaydi);
+  buyurtmada avtomatik kamayadi, bekor qilinsa qaytadi; tugasa yoki 3 tadan kam qolsa — adminga ogohlantirish.
+  Bir vaqtdagi buyurtmalarda oxirgi dona faqat bitta mijozga sotiladi
 - ✏️ **Mahsulotni tahrirlash**: nom, tavsif, narx, o'lchamlar, ranglar, kategoriya, rasmlar (qo'shish /
   almashtirish / o'chirish), video va tarjimalarni (har bir tilni alohida) mahsulotni o'chirmasdan o'zgartirish
 - 🖼 Mahsulot qo'shishda bir nechta rasm yoki albom yuborish, so'ng «✔️ Tayyor»

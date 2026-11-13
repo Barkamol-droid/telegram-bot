@@ -1,5 +1,6 @@
 """Bot chati va sayt (Mini App) uchun umumiy amallar."""
 import logging
+from html import escape
 
 from aiogram import Bot
 
@@ -29,8 +30,14 @@ async def finish_order(bot: Bot, order_id: int, lang: str, send_summary: bool = 
     except Exception as e:
         log.warning("Mijozga (%s) buyurtma xabari yuborilmadi: %s", user_id, e)
 
-    # Adminlarga xabar (o'zbek tilida)
+    # Adminlarga xabar (o'zbek tilida) + kam qolgan mahsulotlar haqida ogohlantirish
     admin_text = "🔔 <b>Yangi buyurtma!</b>\n\n" + kb.order_text(order, items, "uz", for_admin=True)
+    low = await db.low_stock_products([i["product_id"] for i in items])
+    if low:
+        admin_text += "\n\n" + "\n".join(
+            f"❌ «{escape(p['name'])}» tugadi!" if p["stock"] <= 0 else f"⚠️ «{escape(p['name'])}» dan {p['stock']} ta qoldi"
+            for p in low
+        ) + "\n<i>Qoldiqni: ✏️ Mahsulotni tahrirlash → 📦 Soni</i>"
     for admin_id in all_admin_ids():
         try:
             await bot.send_message(admin_id, admin_text, reply_markup=kb.admin_order_kb(order_id))

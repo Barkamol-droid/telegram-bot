@@ -216,6 +216,8 @@ _EXTRA_COLUMNS = [
     ("products", "video_size", "INTEGER"),
     ("products", "colors", "TEXT"),
     ("products", "photos", "TEXT"),
+    ("products", "stock", "INTEGER"),
+    ("orders", "stock_reserved", "INTEGER NOT NULL DEFAULT 0"),
     ("order_items", "color", "TEXT NOT NULL DEFAULT ''"),
     ("orders", "subtotal", f"{_T['int']}"),
     ("orders", "bonus_used", "INTEGER NOT NULL DEFAULT 0"),
@@ -426,13 +428,15 @@ async def add_product(category_id: int, name: str, description: str | None,
                       price: int, photo_id: str | None, sizes: list[str] | None = None,
                       name_i18n: str | None = None, description_i18n: str | None = None,
                       video_id: str | None = None, video_size: int | None = None,
-                      colors_json: str | None = None, photos: list[str] | None = None) -> int:
+                      colors_json: str | None = None, photos: list[str] | None = None,
+                      stock: int | None = None) -> int:
     photos = (photos or ([photo_id] if photo_id else []))[:MAX_PHOTOS]
     return await _insert(
         "INSERT INTO products (category_id, name, name_i18n, description, description_i18n, price, photo_id, sizes, "
-        "video_id, video_size, colors, photos) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "video_id, video_size, colors, photos, stock) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         (category_id, name, name_i18n, description, description_i18n, price, photos[0] if photos else None,
-         ",".join(sizes) if sizes else None, video_id, video_size, colors_json, json.dumps(photos) if photos else None),
+         ",".join(sizes) if sizes else None, video_id, video_size, colors_json, json.dumps(photos) if photos else None,
+         stock),
     )
 
 
@@ -476,7 +480,46 @@ async def set_product_photo(product_id: int, photo_id: str | None):
     await set_product_photos(product_id, [photo_id] if photo_id else [])
 
 
-_EDITABLE = {"name", "name_i18n", "description", "description_i18n", "price", "sizes", "category_id"}
+_EDITABLE = {"name", "name_i18n", "description", "description_i18n", "price", "sizes", "category_id", "stock"}
+LOW_STOCK = 3  # shu sondan kam qolsa — «Faqat N ta qoldi!» va adminga ogohlantirish
+
+
+def product_stock(product: dict) -> int | None:
+    """Mahsulot qoldig'i: None — soni hisoblanmaydi (cheklanmagan)."""
+    value = product.get("stock")
+    return None if value is None else max(int(value), 0)
+
+
+class OutOfStock(Exception):
+    """Buyurtma paytida qoldiq yetmadi. items: [{"product_id", "name", "name_i18n", "available"}]"""
+
+    def __init__(self, items: list[dict]):
+        super().__init__("out of stock")
+        self.items = items
+
+
+async def cart_product_qty(user_id: int, product_id: int) -> int:
+    """Savatdagi shu mahsulotning jami soni (barcha o'lcham/ranglar bo'yicha)."""
+    row = await _fetchone(
+        "SELECT COALESCE(SUM(qty), 0) AS n FROM cart WHERE user_id = ? AND product_id = ?", (user_id, product_id)
+    )
+    return int(row["n"])
+
+
+def _stock_issues(items: list[dict]) -> list[dict]:
+    """Savatdagi miqdor qoldiqdan oshgan mahsulotlar."""
+    wanted: dict[int, int] = {}
+    info: dict[int, dict] = {}
+    for i in items:
+        wanted[i["product_id"]] = wanted.get(i["product_id"], 0) + i["qty"]
+        info[i["product_id"]] = i
+    issues = []
+    for pid, qty in wanted.items():
+        stock = info[pid].get("stock")
+        if stock is not None and qty > int(stock):
+            issues.append({"product_id": pid, "name": info[pid]["name"], "name_i18n": info[pid].get("name_i18n"),
+                           "available": max(int(stock), 0)})
+    return issues
 
 
 async def update_product(product_id: int, **fields):
@@ -545,7 +588,7 @@ async def _cart_get(db: _Conn, user_id: int):
     """Savatdagi mahsulotlar — joriy aksiya hisobga olingan narxlar bilan.
     Har bir qatorda: price (yakuniy), old_price (aksiyadan oldingi yoki None), percent, subtotal."""
     rows = await db.fetchall(
-        "SELECT c.product_id, c.size, c.color, c.qty, p.name, p.name_i18n, p.price, p.category_id "
+        "SELECT c.product_id, c.size, c.color, c.qty, p.name, p.name_i18n, p.price, p.category_id, p.stock "
         "FROM cart c JOIN products p ON p.id = c.product_id "
         "WHERE c.user_id = ? AND p.is_active = 1 ORDER BY p.name, c.size, c.color",
         (user_id,),
@@ -661,6 +704,7 @@ async def _order_preview(db: _Conn, user_id: int, use_bonus: bool, lock: bool = 
         "bonus_discount": bonus_discount,
         "total": total,
         "bonus_earned": bonus_for_amount(total),
+        "stock_issues": _stock_issues(items),
     }
 
 
@@ -723,6 +767,18 @@ async def create_order(user_id: int, full_name: str, phone: str, address: str | 
         items = p["items"]
         if not items:
             return None
+        # Qoldiqni tekshirish: PostgreSQL'da mahsulot qatorlari bir vaqtdagi buyurtmalar uchun qulflanadi
+        if USE_PG:
+            ids = sorted({i["product_id"] for i in items})
+            rows = await db.fetchall(
+                f"SELECT id, stock FROM products WHERE id IN ({', '.join('?' for _ in ids)}) FOR UPDATE", ids
+            )
+            fresh = {r["id"]: r["stock"] for r in rows}
+            for i in items:
+                i["stock"] = fresh.get(i["product_id"], i.get("stock"))
+        issues = _stock_issues(items)
+        if issues:
+            raise OutOfStock(issues)
         total = p["total"]
         fully_paid = total == 0
         order_id = await db.insert(
@@ -742,8 +798,44 @@ async def create_order(user_id: int, full_name: str, phone: str, address: str | 
             [(order_id, i["product_id"], i["name"], i["name_i18n"], i["size"], i["color"], i["price"], i["qty"])
              for i in items],
         )
+        # Qoldiqni kamaytirish (soni hisoblanadigan mahsulotlar uchun)
+        reserved = False
+        for i in items:
+            if i.get("stock") is not None:
+                await db.execute(
+                    "UPDATE products SET stock = stock - ? WHERE id = ? AND stock IS NOT NULL", (i["qty"], i["product_id"])
+                )
+                reserved = True
+        if reserved:
+            await db.execute("UPDATE orders SET stock_reserved = 1 WHERE id = ?", (order_id,))
         await db.execute("DELETE FROM cart WHERE user_id = ?", (user_id,))
     return order_id
+
+
+async def restore_order_stock(order_id: int) -> bool:
+    """Bekor qilingan buyurtma mahsulotlarini qoldiqqa qaytaradi (bir marta)."""
+    async with _tx() as db:
+        order = await db.fetchone("SELECT stock_reserved FROM orders WHERE id = ?", (order_id,))
+        if not order or not order["stock_reserved"]:
+            return False
+        await db.execute("UPDATE orders SET stock_reserved = 0 WHERE id = ?", (order_id,))
+        for item in await db.fetchall("SELECT product_id, qty FROM order_items WHERE order_id = ?", (order_id,)):
+            await db.execute(
+                "UPDATE products SET stock = stock + ? WHERE id = ? AND stock IS NOT NULL", (item["qty"], item["product_id"])
+            )
+    return True
+
+
+async def low_stock_products(product_ids: list[int]) -> list[dict]:
+    """Berilgan mahsulotlardan qoldig'i kam qolganlari (adminga ogohlantirish uchun)."""
+    if not product_ids:
+        return []
+    ids = sorted(set(product_ids))
+    return await _fetchall(
+        f"SELECT id, name, stock FROM products WHERE id IN ({', '.join('?' for _ in ids)}) "
+        "AND stock IS NOT NULL AND stock < ? AND is_active = 1",
+        (*ids, LOW_STOCK),
+    )
 
 
 async def get_order(order_id: int):

@@ -18,6 +18,7 @@ class AddProduct(StatesGroup):
     name = State()
     description = State()
     price = State()
+    stock = State()
     sizes = State()
     colors = State()
     photo = State()

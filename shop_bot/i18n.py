@@ -119,6 +119,31 @@ TEXTS: dict[str, dict[str, str]] = {
     "color_selected": {"uz": "Rang: {color}", "ru": "Цвет: {color}", "tg": "Ранг: {color}", "kk": "Түсі: {color}"},
     "variant_size": {"uz": "o'lcham: {v}", "ru": "размер: {v}", "tg": "андоза: {v}", "kk": "өлшем: {v}"},
     "variant_color": {"uz": "rang: {v}", "ru": "цвет: {v}", "tg": "ранг: {v}", "kk": "түсі: {v}"},
+    "in_stock": {"uz": "📦 Mavjud: {n} dona", "ru": "📦 В наличии: {n} шт.", "tg": "📦 Мавҷуд: {n} дона", "kk": "📦 Қолда бар: {n} дана"},
+    "low_stock": {
+        "uz": "⚠️ Faqat {n} ta qoldi!", "ru": "⚠️ Осталось всего {n} шт.!",
+        "tg": "⚠️ Танҳо {n} дона монд!", "kk": "⚠️ Тек {n} дана қалды!",
+    },
+    "out_of_stock": {
+        "uz": "❌ Hozircha tugagan", "ru": "❌ Нет в наличии", "tg": "❌ Ҳоло тамом шудааст", "kk": "❌ Қазір қолда жоқ",
+    },
+    "btn_out_of_stock": {"uz": "❌ Tugagan", "ru": "❌ Нет в наличии", "tg": "❌ Тамом шуд", "kk": "❌ Таусылды"},
+    "stock_limit": {
+        "uz": "Bu mahsulotdan faqat {n} ta bor (savatingizda {c} ta).",
+        "ru": "Этого товара всего {n} шт. (в корзине {c}).",
+        "tg": "Аз ин маҳсулот танҳо {n} дона ҳаст (дар сабад {c}).",
+        "kk": "Бұл тауардан тек {n} дана бар (себетте {c}).",
+    },
+    "stock_changed": {
+        "uz": "⚠️ Kechirasiz, ba'zi mahsulotlar soni o'zgardi:\n{items}\n\nSavatni tekshirib, qaytadan buyurtma bering.",
+        "ru": "⚠️ Извините, наличие некоторых товаров изменилось:\n{items}\n\nПроверьте корзину и оформите заказ снова.",
+        "tg": "⚠️ Бубахшед, миқдори баъзе маҳсулотҳо тағйир ёфт:\n{items}\n\nСабадро санҷида, дубора фармоиш диҳед.",
+        "kk": "⚠️ Кешіріңіз, кейбір тауарлардың саны өзгерді:\n{items}\n\nСебетті тексеріп, қайта тапсырыс беріңіз.",
+    },
+    "stock_left_item": {
+        "uz": "• {name}: {n} ta qoldi", "ru": "• {name}: осталось {n} шт.",
+        "tg": "• {name}: {n} дона монд", "kk": "• {name}: {n} дана қалды",
+    },
     "choose_size_first": {
         "uz": "📏 Avval o'lchamni tanlang!", "ru": "📏 Сначала выберите размер!",
         "tg": "📏 Аввал андозаро интихоб кунед!", "kk": "📏 Алдымен өлшемді таңдаңыз!",

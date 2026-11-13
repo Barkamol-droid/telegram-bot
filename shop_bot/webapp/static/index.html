@@ -4,6 +4,8 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
 <title>Shop</title>
+<link rel="icon" href="/logo">
+<link rel="apple-touch-icon" href="/logo">
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
 <style>
   :root {
@@ -56,6 +58,18 @@
   .card { background: var(--bg); border-radius: var(--radius); overflow: hidden; text-align: left; display: flex;
     flex-direction: column; transition: transform .1s; }
   .card:active { transform: scale(.98); }
+  .logo img { width: 32px; height: 32px; border-radius: 50%; object-fit: cover; display: block;
+    box-shadow: 0 0 0 1px rgba(127,127,127,.25); }
+  .thumb img.ph-logo, .placeholder img.ph-logo, .mini img.ph-logo, img.ph-logo { width: 46%; height: 46%;
+    border-radius: 50%; object-fit: cover; opacity: .9; }
+  .card.soldout .thumb img { filter: grayscale(1); opacity: .55; }
+  .tag.sold { left: 50%; top: 50%; transform: translate(-50%, -50%); background: rgba(30,30,30,.82); font-size: 13px;
+    padding: 6px 12px; white-space: nowrap; }
+  .stock { font-size: 12px; font-weight: 600; color: #2e9e5b; }
+  .stock.low { color: #e08a1e; }
+  .stock.out { color: var(--danger); }
+  .warn-box { background: rgba(224,83,61,.1); color: var(--danger); border-radius: 12px; padding: 12px; white-space: pre-wrap;
+    font-size: 14px; }
   .thumb { position: relative; aspect-ratio: 1; background: linear-gradient(135deg, #f7efdc, #efe2c0);
     display: grid; place-items: center; font-size: 38px; }
   .thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
@@ -164,7 +178,7 @@
 </head>
 <body>
 <header id="header" class="hidden">
-  <div class="logo"><div class="gem">💎</div><span id="shopName"></span></div>
+  <div class="logo"><img id="logoImg" src="/logo" alt="" onerror="this.replaceWith(Object.assign(document.createElement('div'), {className: 'gem', textContent: '💎'}))"><span id="shopName"></span></div>
   <button class="icon-btn" id="bonusBtn" title="💎">💎<span class="badge hidden" id="bonusBadge"></span></button>
   <button class="icon-btn" id="langBtn">🌐</button>
   <button class="icon-btn" id="cartBtn">🛒<span class="badge hidden" id="cartBadge"></span></button>
@@ -222,14 +236,28 @@ function promoTimerText() {
 setInterval(() => document.querySelectorAll("[data-timer]").forEach((el) => (el.textContent = promoTimerText())), 1000);
 
 // ---------------- Bosh sahifa ----------------
+// Rasmi yo'q mahsulotlarda bot logotipi ko'rinadi (u ham bo'lmasa — 💎)
+const logoPh = () => `<img class="ph-logo" src="/logo" alt="" onerror="this.replaceWith('💎')">`;
+const soldOut = (p) => p.stock === 0;
+function stockHtml(p, short = false) {
+  if (p.stock === null || p.stock === undefined) return "";
+  if (p.stock === 0) return `<div class="stock out">${esc(T("out_of_stock"))}</div>`;
+  if (p.stock < 3) return `<div class="stock low">${esc(T("low_stock", { n: p.stock }))}</div>`;
+  return short ? "" : `<div class="stock">${esc(T("in_stock", { n: p.stock }))}</div>`;
+}
+function stockIssuesText(issues) {
+  return T("stock_changed", { items: issues.map((i) => T("stock_left_item", { name: i.name, n: i.available })).join("\n") });
+}
+
 function productCard(p) {
-  const img = p.photo ? `<img loading="lazy" src="${p.photo}" alt="">` : (p.video ? "🎬" : "💎");
-  return `<button class="card" data-id="${p.id}">
+  const img = p.photo ? `<img loading="lazy" src="${p.photo}" alt="">` : (p.video ? "🎬" : logoPh());
+  return `<button class="card ${soldOut(p) ? "soldout" : ""}" data-id="${p.id}">
     <div class="thumb">${img}${p.percent ? `<span class="tag">-${p.percent}%</span>` : ""}${p.video ? `<span class="tag video">▶ ${esc(T("video"))}</span>`
       : p.photos.length > 1 ? `<span class="tag video">🖼 ${p.photos.length}</span>` : ""}
+      ${soldOut(p) ? `<span class="tag sold">${esc(T("btn_out_of_stock"))}</span>` : ""}
       ${p.colors.length ? `<span class="swatch-dots">${p.colors.slice(0, 5).map((c) => `<i style="${dotStyle(c)}"></i>`).join("")}</span>` : ""}</div>
     <div class="info"><div class="name">${esc(p.name)}</div>
-      <div><div class="price">${money(p.price)}</div>${p.old_price ? `<div class="old">${money(p.old_price)}</div>` : ""}</div></div>
+      <div><div class="price">${money(p.price)}</div>${p.old_price ? `<div class="old">${money(p.old_price)}</div>` : ""}${stockHtml(p, true)}</div></div>
   </button>`;
 }
 
@@ -283,9 +311,11 @@ function syncButtons() {
   const top = current();
   if (S.stack.length) tg.BackButton.show(); else tg.BackButton.hide();
   const mb = tg.MainButton;
+  mb.enable();
   if (top === "product") {
     const p = S.product;
-    mb.setText(`${T("add_to_cart")} · ${money(p.price * S.qty)}`); mb.show();
+    if (soldOut(p)) { mb.setText(T("btn_out_of_stock")); mb.disable(); mb.show(); }
+    else { mb.setText(`${T("add_to_cart")} · ${money(p.price * S.qty)}`); mb.show(); }
   } else if (top === "cart" && S.cart?.items.length) {
     mb.setText(`${T("checkout")} · ${money(S.cart.total)}`); mb.show();
   } else if (top === "checkout") {
@@ -314,7 +344,7 @@ function openProduct(id) {
   const media = total ? `<div class="slider" id="slider">${slides.join("")}</div>${total > 1 ? `
       <div class="counter" id="counter">1/${total}</div>
       <div class="dots">${slides.map((_, i) => `<i class="${i === 0 ? "active" : ""}"></i>`).join("")}</div>` : ""}`
-    : `<div class="placeholder">💎</div>`;
+    : `<div class="placeholder">${logoPh()}</div>`;
   const tabs = "";
   const el = pushScreen("product", `
     <div class="media" id="media">${media}${tabs}</div>
@@ -322,12 +352,13 @@ function openProduct(id) {
       <h2>${esc(p.name)}</h2>
       <div class="price-line"><span class="big-price nowrap">${money(p.price)}</span>${p.old_price ? `<span class="old" style="font-size:15px">${money(p.old_price)}</span><span class="discount-pill" style="margin:0">-${p.percent}%</span>` : ""}</div>
       ${p.percent && S.data.promo ? `<div class="ends" data-timer>${esc(promoTimerText())}</div>` : ""}
+      ${stockHtml(p) ? `<div style="margin-top:8px">${stockHtml(p)}</div>` : ""}
     </div>
     ${p.colors.length ? `<div class="panel"><h4>${esc(T("color"))}</h4><div class="swatches">${p.colors.map((c) =>
       `<button class="swatch ${S.color === c.key ? "active" : ""}" data-color="${esc(c.key)}"><span class="dot" style="${dotStyle(c)}"></span>${esc(c.name)}</button>`).join("")}</div></div>` : ""}
     ${p.sizes.length ? `<div class="panel"><h4>${esc(T("size"))}</h4><div class="sizes">${p.sizes.map((s) =>
       `<button class="size" data-size="${esc(s)}">${esc(s)}</button>`).join("")}</div></div>` : ""}
-    <div class="panel" style="display:flex;align-items:center;justify-content:space-between">
+    <div class="panel" style="display:${soldOut(p) ? "none" : "flex"};align-items:center;justify-content:space-between">
       <h4 style="margin:0">${esc(T("quantity"))}</h4>
       <div class="stepper"><button data-q="-1">−</button><span id="qty">1</span><button data-q="1">+</button></div>
     </div>
@@ -353,7 +384,10 @@ function openProduct(id) {
     el.querySelectorAll("[data-size]").forEach((x) => x.classList.toggle("active", x === b));
   });
   el.querySelectorAll("[data-q]").forEach((b) => b.onclick = () => {
-    S.qty = Math.min(99, Math.max(1, S.qty + +b.dataset.q)); $("#qty", el).textContent = S.qty; haptic(); syncButtons();
+    const max = p.stock === null || p.stock === undefined ? 99 : Math.max(1, p.stock);
+    const next = S.qty + +b.dataset.q;
+    if (next > max) { haptic("error"); toast(T("stock_limit", { n: p.stock, c: cartQty(p.id) })); return; }
+    S.qty = Math.min(max, Math.max(1, next)); $("#qty", el).textContent = S.qty; haptic(); syncButtons();
   });
 }
 
@@ -369,17 +403,25 @@ async function addToCart() {
     document.querySelectorAll(".size").forEach((x) => { x.classList.remove("shake"); void x.offsetWidth; x.classList.add("shake"); });
     return;
   }
+  if (soldOut(p)) { haptic("error"); toast(T("out_of_stock")); return; }
+  if (p.stock !== null && p.stock !== undefined && cartQty(p.id) + S.qty > p.stock) {
+    haptic("error"); toast(T("stock_limit", { n: p.stock, c: cartQty(p.id) })); return;
+  }
   const color = p.colors.length ? S.color : "";
   const existing = S.cart.items.find((i) => i.product_id === p.id && i.size === (p.sizes.length ? S.size : "") && i.color === color);
   tg.MainButton.showProgress();
   try {
     S.cart = await api("/api/cart", { product_id: p.id, size: S.size, color, qty: (existing?.qty || 0) + S.qty });
     haptic("success"); toast(T("added")); popScreen();
-  } catch (e) { haptic("error"); toast(T("error")); }
+  } catch (e) {
+    haptic("error");
+    toast(e.data?.error === "out_of_stock" ? T("stock_limit", { n: e.data.available, c: e.data.in_cart }) : T("error"));
+  }
   finally { tg.MainButton.hideProgress(); syncButtons(); }
 }
 
 // ---------------- Savat ----------------
+const cartQty = (pid) => (S.cart?.items || []).filter((i) => i.product_id === pid).reduce((a, i) => a + i.qty, 0);
 function cartSummary(c) {
   return `<div class="row"><span>${esc(T("subtotal"))}</span><span>${money(c.subtotal + c.promo_discount)}</span></div>
     ${c.promo_discount ? `<div class="row green"><span>${esc(T("discount"))}</span><span>−${money(c.promo_discount)}</span></div>` : ""}
@@ -394,7 +436,7 @@ function cartHtml() {
     <button class="btn secondary" id="toShop" style="max-width:260px;margin:16px auto 0">${esc(T("continue_shopping"))}</button></div>`;
   const photo = (id) => S.data.products.find((p) => p.id === id)?.photo;
   return `<div class="panel"><h4>${esc(T("cart"))}</h4>${c.items.map((i, n) => `
-      <div class="line"><div class="mini">${photo(i.product_id) ? `<img src="${photo(i.product_id)}" alt="">` : "💎"}</div>
+      <div class="line"><div class="mini">${photo(i.product_id) ? `<img src="${photo(i.product_id)}" alt="">` : logoPh()}</div>
         <div class="grow"><div class="title">${esc(i.name)}</div>
           ${i.color ? `<div class="sub">${esc(T("color"))}: ${esc(i.color_name)}</div>` : ""}
           ${i.size ? `<div class="sub">${esc(T("size"))}: ${esc(i.size)}</div>` : ""}
@@ -404,6 +446,7 @@ function cartHtml() {
     ${c.max_usable ? `<div class="panel"><div class="bonus-box"><div style="font-size:26px">💎</div>
         <div class="grow"><b>${esc(T("your_bonus"))}: ${c.balance}</b><div class="sub">${esc(T("use_bonus", { n: c.max_usable, value: money(c.max_usable * S.data.bonus.value) }))}</div></div>
         <label class="switch"><input type="checkbox" id="useBonus" ${S.useBonus ? "checked" : ""}><span></span></label></div></div>` : ""}
+    ${c.stock_issues?.length ? `<div class="panel"><div class="warn-box">${esc(stockIssuesText(c.stock_issues))}</div></div>` : ""}
     <div class="panel">${cartSummary(c)}</div>`;
 }
 
@@ -412,7 +455,10 @@ function bindCart(el) {
     const item = S.cart.items[+b.dataset.idx];
     haptic();
     try { S.cart = await api("/api/cart", { product_id: item.product_id, size: item.size, color: item.color, qty: item.qty + +b.dataset.d, use_bonus: S.useBonus }); }
-    catch (e) { toast(T("error")); }
+    catch (e) {
+      haptic("error");
+      toast(e.data?.error === "out_of_stock" ? T("stock_limit", { n: e.data.available, c: e.data.in_cart }) : T("error"));
+    }
     refreshCart(el);
   });
   const ub = $("#useBonus", el);
@@ -430,6 +476,7 @@ async function openCart() {
 
 // ---------------- Rasmiylashtirish ----------------
 function openCheckout() {
+  if (S.cart.stock_issues?.length) { haptic("error"); tg.showAlert(stockIssuesText(S.cart.stock_issues)); return; }
   const c = S.data.contact; haptic();
   pushScreen("checkout", `<div class="panel">
       <label class="field" id="f_full_name"><span>${esc(T("name"))}</span><input id="full_name" value="${esc(c.full_name)}" maxlength="64" autocomplete="name"></label>
@@ -452,7 +499,7 @@ async function placeOrder() {
     haptic("success");
     S.data.contact = { full_name: body.full_name, phone: body.phone, address: body.address };
     S.cart = { ...S.cart, items: [], total: 0, subtotal: 0 };
-    try { const b = await api("/api/bootstrap"); S.data.bonus = b.bonus; S.cart = b.cart; } catch (e) {}
+    try { const b = await api("/api/bootstrap"); S.data.bonus = b.bonus; S.cart = b.cart; S.data.products = b.products; } catch (e) {}
     document.querySelectorAll(".toast").forEach((t) => t.remove());
     while (S.stack.length) { $("#screens").lastElementChild.remove(); S.stack.pop(); }
     renderHome();
@@ -467,6 +514,12 @@ async function placeOrder() {
     if (e.data?.error === "validation") {
       e.data.fields.forEach((f) => $("#f_" + f)?.classList.add("error"));
       toast(T("fill_required"));
+    } else if (e.data?.error === "out_of_stock") {
+      S.cart = e.data.cart;
+      tg.showAlert(stockIssuesText(e.data.items));
+      popScreen();  // savatga qaytamiz — u yerda nima o'zgargani ko'rinadi
+      const cartEl = $("#screens").lastElementChild; if (cartEl) refreshCart(cartEl);
+      try { const b = await api("/api/bootstrap"); S.data.products = b.products; } catch (err) {}
     } else if (e.data?.error === "prices_changed") {
       S.cart = e.data.cart; $("#checkoutSummary").innerHTML = cartSummary(S.cart);
       tg.showAlert(T("prices_changed"));

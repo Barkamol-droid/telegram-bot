@@ -485,8 +485,44 @@ async def add_product_price(message: Message, state: FSMContext):
         await message.answer("❗️ Narx musbat butun son bo'lishi kerak. Masalan: 25000")
         return
     await state.update_data(price=int(raw))
+    await state.set_state(AddProduct.stock)
+    await message.answer(STOCK_PROMPT, reply_markup=kb.skip_cancel_kb(DEFAULT_LANG))
+
+
+STOCK_PROMPT = (
+    "📦 Vitrinada <b>nechta bor</b>? Sonini yozing, masalan <code>5</code>.\n"
+    "<i>Mijozlar «📦 Mavjud: 5 dona» ni ko'radi; buyurtma qilinganda soni avtomatik kamayadi, "
+    "tugasa — «❌ Tugagan» bo'ladi.</i>\n\n"
+    "Sonini hisoblamaslik uchun «O'tkazib yuborish» ni bosing."
+)
+
+
+def parse_stock(text: str) -> int | None | bool:
+    """Son -> int; «O'tkazib yuborish» -> None (hisoblanmaydi); noto'g'ri -> False."""
+    if is_skip(text):
+        return None
+    raw = text.replace(" ", "")
+    if not raw.isdigit() or int(raw) > 100000:
+        return False
+    return int(raw)
+
+
+def stock_label(stock: int | None) -> str:
+    if stock is None:
+        return "hisoblanmaydi"
+    return "❌ tugagan (0)" if stock <= 0 else f"{stock} ta"
+
+
+@router.message(AddProduct.stock, F.text)
+async def add_product_stock(message: Message, state: FSMContext):
+    stock = parse_stock(message.text)
+    if stock is False:
+        await message.answer("❗️ Son kiriting (0 yoki undan katta), masalan: 5")
+        return
+    await state.update_data(stock=stock)
     await state.set_state(AddProduct.sizes)
     await message.answer(
+        f"✅ Soni: {stock_label(stock)}\n\n"
         "📏 Mahsulot o'lchamlarini vergul bilan kiriting.\n"
         "Masalan, uzuk uchun: <code>16, 16.5, 17, 17.5, 18, 18.5</code>\n"
         "Zanjir uchun: <code>40, 45, 50</code>\n\n"
@@ -693,9 +729,10 @@ async def add_product_video(message: Message, state: FSMContext, lang: str):
     await db.add_product(
         data["category_id"], data["name"], data["description"], data["price"], None, sizes,
         data.get("name_i18n"), data.get("description_i18n"), video_id, video_size,
-        color_mod.dump(data.get("colors") or []), photos,
+        color_mod.dump(data.get("colors") or []), photos, data.get("stock"),
     )
     info = f"✅ Mahsulot qo'shildi: <b>{escape(data['name'])}</b> — {fmt_price(data['price'])}"
+    info += f"\n📦 Soni: {stock_label(data.get('stock'))}"
     if photos:
         info += f"\n🖼 Rasmlar: {len(photos)} ta"
     if video_id:
@@ -756,6 +793,7 @@ async def product_edit_view(product_id: int):
         f"📝 Tavsif: {escape(desc[:200]) + ('…' if len(desc) > 200 else '') if desc else HAS_NOT}"
         f"{_translations_lines(p.get('description_i18n')) if desc else ''}\n"
         f"💰 Narx: <b>{fmt_price(p['price'])}</b>\n"
+        f"📦 Soni: <b>{stock_label(db.product_stock(p))}</b>\n"
         f"📏 O'lchamlar: {escape(', '.join(sizes)) or HAS_NOT}\n"
         f"🎨 Ranglar: {escape(', '.join(color_mod.name(c, 'uz') for c in colors)) or HAS_NOT}\n"
         f"🖼 Rasmlar: {len(photos)} ta\n"
@@ -766,6 +804,7 @@ async def product_edit_view(product_id: int):
     b.button(text="✏️ Nomi", callback_data=f"pe:n:{pid}")
     b.button(text="📝 Tavsif", callback_data=f"pe:d:{pid}")
     b.button(text="💰 Narx", callback_data=f"pe:p:{pid}")
+    b.button(text="📦 Soni", callback_data=f"pe:q:{pid}")
     b.button(text="📏 O'lchamlar", callback_data=f"pe:s:{pid}")
     b.button(text="🎨 Ranglar", callback_data=f"ecs:{pid}")
     b.button(text="📂 Kategoriya", callback_data=f"pe:c:{pid}")
@@ -775,7 +814,7 @@ async def product_edit_view(product_id: int):
     b.button(text="👁 Mijoz ko'rinishi", callback_data=f"prod:{pid}")
     b.button(text="🗑 O'chirish", callback_data=f"dp:{pid}")
     b.button(text="⬅️ Orqaga", callback_data=f"mdc:{p['category_id']}")
-    b.adjust(2, 2, 2, 2, 1, 2, 1)
+    b.adjust(2, 2, 1, 2, 2, 1, 2, 1)
     return text, b.as_markup()
 
 
@@ -807,6 +846,9 @@ async def cb_edit_choose_product(callback: CallbackQuery, state: FSMContext):
     for p in products:
         n = len(db.product_photos(p))
         icons = (f"🖼{n}" if n else "") + (" 🎬" if p.get("video_id") else "")
+        stock = db.product_stock(p)
+        if stock is not None:
+            icons += " ❌0" if stock <= 0 else f" 📦{stock}"
         markup.button(text=f"{p['name']} — {fmt_price(p['price'])} {icons}".strip(), callback_data=f"mdp:{p['id']}")
     markup.button(text="⬅️ Admin panel", callback_data="adm:menu")
     markup.adjust(1)
@@ -827,6 +869,7 @@ EDIT_PROMPTS = {
     "n": "✏️ Yangi <b>nomni</b> yozing (o'zbekcha — boshqa tillarga avtomatik tarjima qilinadi):",
     "d": "📝 Yangi <b>tavsifni</b> yozing (o'zbekcha — avtomatik tarjima qilinadi).\nTavsifni o'chirish uchun «O'tkazib yuborish» ni bosing:",
     "p": "💰 Yangi <b>narxni</b> yozing (faqat raqam, so'mda). Masalan: 1500000",
+    "q": STOCK_PROMPT.replace("Vitrinada <b>nechta bor</b>?", "Hozir vitrinada <b>nechta bor</b>?"),
     "s": "📏 Yangi <b>o'lchamlarni</b> vergul bilan yozing, masalan <code>16, 16.5, 17</code>.\n"
          "O'lchamlarni o'chirish uchun «O'tkazib yuborish» ni bosing:",
 }
@@ -843,7 +886,7 @@ async def cb_edit_field(callback: CallbackQuery, state: FSMContext):
     if field in EDIT_PROMPTS:
         await state.set_state(EditProduct.text)
         await state.update_data(edit_product_id=product["id"], edit_field=field)
-        markup = kb.skip_cancel_kb(DEFAULT_LANG) if field in ("d", "s") else kb.cancel_kb(DEFAULT_LANG)
+        markup = kb.skip_cancel_kb(DEFAULT_LANG) if field in ("d", "s", "q") else kb.cancel_kb(DEFAULT_LANG)
         await callback.message.answer(EDIT_PROMPTS[field], reply_markup=markup)
     elif field == "c":
         categories = await db.get_categories()
@@ -956,6 +999,13 @@ async def edit_text_value(message: Message, state: FSMContext, lang: str):
             return
         await db.update_product(pid, price=int(raw))
         notice = f"✅ Narx yangilandi: <b>{fmt_price(int(raw))}</b>"
+    elif field == "q":
+        stock = parse_stock(text)
+        if stock is False:
+            await message.answer("❗️ Son kiriting (0 yoki undan katta), masalan: 5")
+            return
+        await db.update_product(pid, stock=stock)
+        notice = f"✅ Soni yangilandi: <b>{stock_label(stock)}</b>"
     elif field == "s":
         if is_skip(text):
             await db.update_product(pid, sizes=None)
@@ -1224,6 +1274,8 @@ async def cb_order_status(callback: CallbackQuery, bot: Bot):
         result = await db.cancel_order_bonus(order_id)
         if result["refunded"]:
             bonus_notes.append(t("bonus_refund_msg", lang, id=order_id, n=result["refunded"]))
+        if await db.restore_order_stock(order_id):
+            await callback.message.answer(f"📦 Buyurtma #{order_id} mahsulotlari qoldiqqa qaytarildi.")
     order = await db.get_order(order_id)
     items = await db.get_order_items(order_id)
     try:
