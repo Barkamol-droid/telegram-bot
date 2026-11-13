@@ -391,6 +391,9 @@ def order_text(order, items, lang: str = "uz", for_admin: bool = False) -> str:
         lines.append(t("bonus_will_earn", lang, n=order["bonus_earned"]))
     lines.append(f"{t('status', lang)}: {status_label(order['status'], lang)}")
     lines.append(f"{t('payment', lang)}: {payment_label(order, lang)}")
+    if for_admin and order.get("delivery_status"):
+        steps = {"assigned": "kuryer oldi", "on_way": "yo'lda", "delivered": "topshirildi"}
+        lines.append(f"🛵 Yetkazish: {steps.get(order['delivery_status'], order['delivery_status'])}")
     return "\n".join(lines)
 
 
@@ -456,7 +459,8 @@ def admin_menu_kb() -> InlineKeyboardMarkup:
     kb.button(text="📢 Xabar yuborish", callback_data="adm:broadcast")
     kb.button(text="👥 Adminlar", callback_data="adm:admins")
     kb.button(text="✏️ Mahsulotni tahrirlash", callback_data="adm:edit")
-    kb.adjust(1, 2, 2, 2, 2, 1)
+    kb.button(text="🛵 Kuryerlar", callback_data="adm:couriers")
+    kb.adjust(1, 2, 2, 2, 2, 2)
     return kb.as_markup()
 
 

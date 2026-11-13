@@ -37,6 +37,14 @@ CREATE TABLE IF NOT EXISTS admins (
     added_by    {int},
     created_at  TEXT
 );
+CREATE TABLE IF NOT EXISTS couriers (
+    id          {int} PRIMARY KEY,
+    full_name   TEXT,
+    phone       TEXT,
+    username    TEXT,
+    status      TEXT NOT NULL DEFAULT 'pending',
+    created_at  TEXT
+);
 CREATE TABLE IF NOT EXISTS bonus_tx (
     id             {pk},
     user_id        {int} NOT NULL,
@@ -218,6 +226,9 @@ _EXTRA_COLUMNS = [
     ("products", "photos", "TEXT"),
     ("products", "stock", "INTEGER"),
     ("orders", "stock_reserved", "INTEGER NOT NULL DEFAULT 0"),
+    ("orders", "courier_id", f"{_T['int']}"),
+    ("orders", "delivery_status", "TEXT"),
+    ("orders", "courier_msgs", "TEXT"),
     ("order_items", "color", "TEXT NOT NULL DEFAULT ''"),
     ("orders", "subtotal", f"{_T['int']}"),
     ("orders", "bonus_used", "INTEGER NOT NULL DEFAULT 0"),
@@ -901,3 +912,78 @@ async def get_stats() -> dict:
         "paid_orders": int(paid["n"]),
         "paid_sum": int(paid["s"]),
     }
+
+
+# ---------------- Kuryerlar ----------------
+async def courier_request(user_id: int, full_name: str, phone: str, username: str | None) -> str:
+    """Kuryer arizasi. Qaytaradi: kuryerning joriy holati (pending / active / blocked)."""
+    existing = await get_courier(user_id)
+    if existing:
+        await _execute("UPDATE couriers SET full_name = ?, phone = ?, username = ? WHERE id = ?",
+                       (full_name, phone, username, user_id))
+        return existing["status"]
+    await _execute(
+        "INSERT INTO couriers (id, full_name, phone, username, status, created_at) VALUES (?, ?, ?, ?, 'pending', ?)",
+        (user_id, full_name, phone, username, _now()),
+    )
+    return "pending"
+
+
+async def get_courier(user_id: int) -> dict | None:
+    return await _fetchone("SELECT * FROM couriers WHERE id = ?", (user_id,))
+
+
+async def set_courier_status(user_id: int, status: str):
+    await _execute("UPDATE couriers SET status = ? WHERE id = ?", (status, user_id))
+
+
+async def get_couriers(status: str | None = None) -> list[dict]:
+    if status:
+        return await _fetchall("SELECT * FROM couriers WHERE status = ? ORDER BY created_at", (status,))
+    return await _fetchall("SELECT * FROM couriers ORDER BY status, created_at")
+
+
+async def save_courier_messages(order_id: int, messages: dict[int, int]):
+    await _execute("UPDATE orders SET courier_msgs = ? WHERE id = ?",
+                   (json.dumps({str(k): v for k, v in messages.items()}), order_id))
+
+
+def courier_messages(order: dict) -> dict[int, int]:
+    try:
+        return {int(k): int(v) for k, v in json.loads(order.get("courier_msgs") or "{}").items()}
+    except ValueError:
+        return {}
+
+
+async def claim_order(order_id: int, courier_id: int) -> bool:
+    """Buyurtmani kuryerga biriktirish. Bir vaqtda bosilsa ham faqat bittasi oladi (shartli UPDATE)."""
+    async with _tx() as db:
+        await db.execute(
+            "UPDATE orders SET courier_id = ?, delivery_status = 'assigned', "
+            "status = CASE WHEN status = 'new' THEN 'accepted' ELSE status END "
+            "WHERE id = ? AND courier_id IS NULL AND status NOT IN ('cancelled', 'delivered')",
+            (courier_id, order_id),
+        )
+        row = await db.fetchone("SELECT courier_id FROM orders WHERE id = ?", (order_id,))
+    return bool(row) and row["courier_id"] == courier_id
+
+
+async def set_delivery_status(order_id: int, courier_id: int, status: str) -> bool:
+    """Kuryer bosqichini yangilash (faqat shu buyurtmani olgan kuryer uchun)."""
+    allowed_from = {"on_way": ("assigned",), "delivered": ("assigned", "on_way")}[status]
+    async with _tx() as db:
+        order = await db.fetchone("SELECT courier_id, delivery_status, status FROM orders WHERE id = ?", (order_id,))
+        if (not order or order["courier_id"] != courier_id or order["status"] == "cancelled"
+                or order["delivery_status"] not in allowed_from):
+            return False
+        await db.execute("UPDATE orders SET delivery_status = ? WHERE id = ?", (status, order_id))
+        if status == "delivered":
+            await db.execute("UPDATE orders SET status = 'delivered' WHERE id = ?", (order_id,))
+    return True
+
+
+async def courier_active_orders(courier_id: int) -> list[dict]:
+    return await _fetchall(
+        "SELECT * FROM orders WHERE courier_id = ? AND delivery_status IN ('assigned', 'on_way') "
+        "AND status <> 'cancelled' ORDER BY id", (courier_id,)
+    )

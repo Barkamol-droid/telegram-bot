@@ -48,4 +48,10 @@ async def finish_order(bot: Bot, order_id: int, lang: str, send_summary: bool = 
                 await bot.send_location(admin_id, order["latitude"], order["longitude"])
         except Exception as e:  # admin botni bloklagan bo'lishi mumkin
             log.warning("Adminga (%s) xabar yuborilmadi: %s", admin_id, e)
+    # Kuryer boti yoqilgan bo'lsa — buyurtmani kuryerlarga tarqatish
+    try:
+        import courier
+        await courier.dispatch_order(order_id)
+    except Exception as e:
+        log.warning("Buyurtma #%s kuryerlarga yuborilmadi: %s", order_id, e)
     return notified

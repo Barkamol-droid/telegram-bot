@@ -10,7 +10,8 @@ from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.types import BotCommand, MenuButtonWebApp, WebAppInfo
 
 import db
-from config import ADMIN_IDS, BOT_TOKEN, PORT, WEBAPP_URL, payment_providers
+import courier
+from config import ADMIN_IDS, BOT_TOKEN, COURIER_BOT_TOKEN, PORT, WEBAPP_URL, payment_providers
 from handlers import admin, bonus, common, payment, user
 from i18n import LangMiddleware
 from webapp.server import start_web_server
@@ -52,9 +53,25 @@ async def main():
     else:
         logging.warning("WEBAPP_URL yo'q — sayt tugmalari ko'rsatilmaydi (Railway'da «Generate Domain» qiling)")
     await bot.delete_webhook(drop_pending_updates=True)
+
+    # Kuryer boti (ixtiyoriy) — alohida bot, bitta jarayonda
+    courier_bot = None
+    pollers = [dp.start_polling(bot)]
+    if COURIER_BOT_TOKEN:
+        courier_bot = Bot(COURIER_BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
+        courier_dp = Dispatcher(storage=MemoryStorage())
+        courier_dp.include_router(courier.router)
+        await courier_bot.delete_webhook(drop_pending_updates=True)
+        await courier_bot.set_my_commands([BotCommand(command="start", description="Kuryer menyusi")])
+        pollers.append(courier_dp.start_polling(courier_bot, handle_signals=False))
+        logging.info("Kuryer boti ishga tushdi: @%s", (await courier_bot.me()).username)
+    else:
+        logging.info("Kuryer boti o'chirilgan (COURIER_BOT_TOKEN yo'q)")
+    courier.setup(bot, courier_bot)
+
     logging.info("Bot ishga tushdi")
     try:
-        await dp.start_polling(bot)
+        await asyncio.gather(*pollers)
     finally:
         await runner.cleanup()
 

@@ -17,9 +17,11 @@ from aiogram.types import CallbackQuery, Message, TelegramObject
 import colors as color_mod
 import db
 import keyboards as kb
+import courier
 import pricing
 import translate
 from config import (
+    fmt_phone,
     ADMIN_IDS, BONUS_VALUE, MAX_WEB_MEDIA_BYTES, PAYMENT_NAMES, SHOP_NAME, WEBAPP_URL, TIMEZONE, fmt_price, is_admin, is_owner, is_test_token, now,
     payment_providers,
 )
@@ -1276,6 +1278,7 @@ async def cb_order_status(callback: CallbackQuery, bot: Bot):
             bonus_notes.append(t("bonus_refund_msg", lang, id=order_id, n=result["refunded"]))
         if await db.restore_order_stock(order_id):
             await callback.message.answer(f"📦 Buyurtma #{order_id} mahsulotlari qoldiqqa qaytarildi.")
+        await courier.notify_cancel(order_id)
     order = await db.get_order(order_id)
     items = await db.get_order_items(order_id)
     try:
@@ -1326,6 +1329,59 @@ async def cmd_bonus(message: Message, bot: Bot):
             await bot.send_message(user_id, t("bonus_from_shop", lang, n=amount, value=kb.bonus_value(amount, lang), total=total))
         except Exception as e:
             log.warning("Mijozga (%s) xabar yuborilmadi: %s", user_id, e)
+
+
+# ================= KURYERLAR =================
+COURIER_STATUS = {"active": "✅ faol", "pending": "⏳ kutmoqda", "blocked": "⛔️ o'chirilgan"}
+
+
+async def couriers_view():
+    couriers = await db.get_couriers()
+    lines = ["🛵 <b>Kuryerlar</b>\n"]
+    if not courier.enabled():
+        lines.append("⚠️ Kuryer boti ulanmagan. Railway Variables'ga <code>COURIER_BOT_TOKEN</code> qo'shing.\n")
+    if not couriers:
+        lines.append("Hali kuryer yo'q. Kuryer, kuryer botiga /start bosib, telefon raqamini yuborsin.")
+    b = kb.InlineKeyboardBuilder()
+    for c in couriers:
+        lines.append(f"• {escape(c['full_name'] or '')} — {escape(fmt_phone(c['phone'] or ''))} — {COURIER_STATUS.get(c['status'], c['status'])}")
+        if c["status"] == "active":
+            b.button(text=f"⛔️ {c['full_name']}", callback_data=f"cr_no:{c['id']}")
+        else:
+            b.button(text=f"✅ {c['full_name']}", callback_data=f"cr_ok:{c['id']}")
+    b.button(text="⬅️ Admin panel", callback_data="adm:menu")
+    b.adjust(1)
+    return "\n".join(lines), b.as_markup()
+
+
+@router.callback_query(F.data == "adm:couriers")
+async def cb_couriers(callback: CallbackQuery):
+    text, markup = await couriers_view()
+    await edit(callback, text, markup)
+
+
+@router.callback_query(F.data.startswith("cr_ok:") | F.data.startswith("cr_no:"))
+async def cb_courier_decision(callback: CallbackQuery):
+    approve = callback.data.startswith("cr_ok:")
+    courier_id = int(callback.data.split(":")[1])
+    c = await db.get_courier(courier_id)
+    if not c:
+        await callback.answer("Kuryer topilmadi", show_alert=True)
+        return
+    await db.set_courier_status(courier_id, "active" if approve else "blocked")
+    await callback.answer("✅ Kuryer tasdiqlandi" if approve else "⛔️ Kuryer o'chirildi", show_alert=True)
+    if courier.enabled():
+        try:
+            await courier.COURIER_BOT.send_message(
+                courier_id,
+                "🎉 Siz kuryer sifatida tasdiqlandingiz! Yangi buyurtmalar shu yerga keladi."
+                if approve else "⛔️ Kuryer hisobingiz faol emas. Savollar bo'lsa, do'kon bilan bog'laning.",
+                reply_markup=courier.courier_menu() if approve else None,
+            )
+        except Exception as e:
+            log.warning("Kuryerga (%s) xabar yuborilmadi: %s", courier_id, e)
+    text, markup = await couriers_view()
+    await edit(callback, text, markup)
 
 
 # ================= STATISTIKA =================

@@ -87,6 +87,7 @@ python main.py
 | `WEBAPP_URL`   | Sayt manzili (Railway'da shart emas — `RAILWAY_PUBLIC_DOMAIN` dan olinadi) |
 | `ANTHROPIC_API_KEY` | Claude orqali sifatli avtomatik tarjima (ixtiyoriy; bo'lmasa — bepul xizmat) |
 | `AUTO_TRANSLATE` | `0` — avtomatik tarjimani o'chirish |
+| `COURIER_BOT_TOKEN` | Kuryer boti tokeni (ixtiyoriy) |
 | `TIMEZONE`     | Vaqt mintaqasi (standart: `Asia/Tashkent`) — aksiya vaqti shu bo'yicha |
 | `CONTACT_TEXT` | «☎️ Aloqa» tugmasi matni (`\n` — yangi qator). Tilga xos: `CONTACT_TEXT_RU`, `_TG`, `_KK` |
 
@@ -113,6 +114,18 @@ Do'kon Telegram'dan tashqarida ham ochiladi: `https://<domen>/` — mijoz «Log 
    `https://` siz). Busiz «Log in with Telegram» tugmasi «Bot domain invalid» deydi.
 2. Kirishda mijoz botga xabar yozishga ruxsat beradi — buyurtma xulosasi va Click/Payme to'lov tugmalari Telegram'ga keladi.
 3. Sessiya — 30 kunlik HttpOnly cookie; «🌐 → 🚪 Chiqish» bilan chiqiladi.
+
+## 🛵 Kuryer boti
+
+Buyurtmalar alohida kuryer botiga keladi; kuryer «📦 Oldim → 🚚 Yo'ldaman → ✅ Topshirdim» bosqichlarini belgilaydi.
+
+1. @BotFather → `/newbot` → kuryerlar uchun yangi bot (masalan `@AzureKuryerBot`); tokenini Railway Variables'ga
+   `COURIER_BOT_TOKEN` sifatida qo'shing va Deploy qiling.
+2. Kuryer shu botga `/start` bosib telefon raqamini yuboradi → asosiy botda adminga «✅ Tasdiqlash / ❌ Rad etish».
+3. Yangi buyurtma barcha faol kuryerlarga boradi (mijoz ismi/telefoni — faqat olgan kuryerga). Birinchi «📦 Oldim»
+   bosgan oladi (bir vaqtda bosilsa ham faqat bittasi); mijoz har bosqichda o'z tilida xabar oladi; «Topshirdim» —
+   buyurtma «Yetkazildi», brilliantlar beriladi. Admin bekor qilsa — kuryerlarga xabar boradi.
+4. Admin panel → «🛵 Kuryerlar» — ro'yxat, faollashtirish / o'chirish.
 
 ## Onlayn to'lov (Click, Payme)
 

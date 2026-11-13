@@ -290,6 +290,25 @@ TEXTS: dict[str, dict[str, str]] = {
         "tg": "🔔 Ҳолати фармоиши №{id} тағйир ёфт: <b>{status}</b>",
         "kk": "🔔 №{id} тапсырыстың күйі өзгерді: <b>{status}</b>",
     },
+    # ---------------- Kuryer (mijozga xabarlar) ----------------
+    "courier_assigned": {
+        "uz": "🛵 Buyurtma #{id} ni kuryer qabul qildi va tez orada yo'lga chiqadi.",
+        "ru": "🛵 Курьер принял заказ №{id} и скоро отправится в путь.",
+        "tg": "🛵 Курйер фармоиши №{id}-ро қабул кард ва ба зудӣ ба роҳ мебарояд.",
+        "kk": "🛵 Курьер №{id} тапсырысты қабылдады және жақында жолға шығады.",
+    },
+    "courier_on_way": {
+        "uz": "🚚 Buyurtma #{id} yo'lda!\nKuryer: <b>{name}</b>\n📞 {phone}",
+        "ru": "🚚 Заказ №{id} в пути!\nКурьер: <b>{name}</b>\n📞 {phone}",
+        "tg": "🚚 Фармоиши №{id} дар роҳ аст!\nКурйер: <b>{name}</b>\n📞 {phone}",
+        "kk": "🚚 №{id} тапсырыс жолда!\nКурьер: <b>{name}</b>\n📞 {phone}",
+    },
+    "courier_delivered": {
+        "uz": "✅ Buyurtma #{id} topshirildi. Xaridingiz uchun rahmat! 💎",
+        "ru": "✅ Заказ №{id} доставлен. Спасибо за покупку! 💎",
+        "tg": "✅ Фармоиши №{id} супорида шуд. Ташаккур барои харид! 💎",
+        "kk": "✅ №{id} тапсырыс табысталды. Сатып алғаныңызға рахмет! 💎",
+    },
     # ---------------- Ma'lumot ----------------
     "channel_text": {
         "uz": "📢 Yangi kolleksiyalar va aksiyalardan xabardor bo'lish uchun kanalimizga obuna bo'ling!",

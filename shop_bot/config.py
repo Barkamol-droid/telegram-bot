@@ -86,6 +86,9 @@ WEBAPP_URL = (os.getenv("WEBAPP_URL", "").strip() or (f"https://{_public_domain}
 # Bot API orqali yuklab olinadigan fayl chegarasi (videolar saytda shu hajmgacha ko'rinadi)
 MAX_WEB_MEDIA_BYTES = 20 * 1024 * 1024
 
+# Kuryer boti (ixtiyoriy): BotFather'da alohida bot ochib, tokenini shu yerga bering
+COURIER_BOT_TOKEN = os.getenv("COURIER_BOT_TOKEN", "").strip()
+
 # Aloqa telefoni («☎️ Aloqa» tugmasida ko'rsatiladi)
 SHOP_PHONE = os.getenv("SHOP_PHONE", "+998900441678").strip()
 
