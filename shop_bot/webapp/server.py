@@ -32,6 +32,8 @@ from config import (
 from db import product_sizes
 from i18n import LANG_NAMES, LANGS, TEXTS, WEB_TEXTS, guess_lang, loc, remember_lang
 from services import finish_order
+from webapp import auth as web_auth
+from types import SimpleNamespace
 
 log = logging.getLogger(__name__)
 STATIC_DIR = Path(__file__).parent / "static"
@@ -127,23 +129,69 @@ def _promo_json(promo: dict | None, category: dict | None, lang: str) -> dict | 
 # ---------------- Avtorizatsiya ----------------
 @web.middleware
 async def auth_middleware(request: web.Request, handler):
-    if not request.path.startswith("/api/"):
+    """Ikki usul: Telegram ichida — imzolangan initData (X-Init-Data); brauzerda (PWA) — sessiya cookie."""
+    if not request.path.startswith("/api/") or request.path.startswith("/api/auth/"):
         return await handler(request)
+    token = request.app["bot"].token
     init_data = request.headers.get("X-Init-Data", "")
-    try:
-        data = safe_parse_webapp_init_data(request.app["bot"].token, init_data)
-    except ValueError:
-        return web.json_response({"error": "unauthorized"}, status=401)
-    if not data.user or time.time() - data.auth_date.timestamp() > INIT_DATA_MAX_AGE:
-        return web.json_response({"error": "unauthorized"}, status=401)
-    user = data.user
-    await db.ensure_user(user.id, " ".join(x for x in [user.first_name, user.last_name] if x), user.username)
-    lang = await db.get_user_lang(user.id)
-    if not lang:
-        lang = guess_lang(user.language_code)
+    if init_data:
+        try:
+            data = safe_parse_webapp_init_data(token, init_data)
+        except ValueError:
+            return web.json_response({"error": "unauthorized"}, status=401)
+        if not data.user or time.time() - data.auth_date.timestamp() > INIT_DATA_MAX_AGE:
+            return web.json_response({"error": "unauthorized"}, status=401)
+        user = data.user
+        await db.ensure_user(user.id, " ".join(x for x in [user.first_name, user.last_name] if x), user.username)
+        lang = await db.get_user_lang(user.id) or guess_lang(user.language_code)
+        request["via"] = "telegram"
+    else:
+        user_id = web_auth.parse_session(token, request.cookies.get(web_auth.COOKIE_NAME))
+        row = await db.get_user(user_id) if user_id else None
+        if not row:
+            return web.json_response({"error": "unauthorized"}, status=401)
+        user = SimpleNamespace(id=row["id"], first_name=row.get("full_name") or "", last_name=None,
+                               username=row.get("username"), language_code=None)
+        lang = row.get("lang") or guess_lang(None)
+        request["via"] = "web"
     request["user"] = user
     request["lang"] = lang
     return await handler(request)
+
+
+# ---------------- Brauzer (PWA) rejimi: Telegram orqali kirish ----------------
+def _set_session_cookie(response: web.Response, request: web.Request, value: str, max_age: int):
+    secure = request.secure or request.headers.get("X-Forwarded-Proto", "") == "https"
+    response.set_cookie(web_auth.COOKIE_NAME, value, max_age=max_age, httponly=True, secure=secure,
+                        samesite="Lax", path="/")
+
+
+async def auth_telegram(request: web.Request) -> web.Response:
+    try:
+        data = await request.json()
+    except ValueError:
+        return web.json_response({"error": "bad_request"}, status=400)
+    user = web_auth.verify_login_widget(request.app["bot"].token, data)
+    if not user:
+        return web.json_response({"error": "unauthorized"}, status=401)
+    full_name = " ".join(x for x in [user["first_name"], user["last_name"]] if x)
+    await db.ensure_user(user["id"], full_name, user["username"])
+    response = web.json_response({"ok": True, "user": {"id": user["id"], "name": full_name}})
+    _set_session_cookie(response, request, web_auth.make_session(request.app["bot"].token, user["id"]),
+                        web_auth.SESSION_MAX_AGE)
+    return response
+
+
+async def auth_config(request: web.Request) -> web.Response:
+    """Kirish ekrani uchun ochiq ma'lumot: bot username (Login Widget uchun) va do'kon nomi."""
+    me = await request.app["bot"].me()
+    return web.json_response({"bot": me.username, "shop": SHOP_NAME})
+
+
+async def auth_logout(request: web.Request) -> web.Response:
+    response = web.json_response({"ok": True})
+    _set_session_cookie(response, request, "", 0)
+    return response
 
 
 # ---------------- API ----------------
@@ -158,6 +206,7 @@ async def bootstrap(request: web.Request) -> web.Response:
     me = await bot.me()
     return web.json_response({
         "lang": lang,
+        "mode": request.get("via", "telegram"),
         "langs": LANG_NAMES,
         "texts": _texts(lang),
         "shop": {
@@ -260,9 +309,10 @@ async def place_order(request: web.Request) -> web.Response:
     if not order_id:
         return web.json_response({"error": "cart_empty"}, status=400)
     order = await db.get_order(order_id)
-    await finish_order(request.app["bot"], order_id, lang, send_summary=True)
+    notified = await finish_order(request.app["bot"], order_id, lang, send_summary=True)
     return web.json_response({
         "order_id": order_id, "total": order["total"], "paid": order["payment_status"] == "paid",
+        "notified": notified,
     })
 
 
@@ -352,6 +402,68 @@ async def logo(request: web.Request) -> web.StreamResponse:
     return web.FileResponse(path, headers={"Cache-Control": "public, max-age=3600", "Content-Type": "image/jpeg"})
 
 
+# ---------------- PWA: manifest, service worker, ikonkalar ----------------
+async def manifest(request: web.Request) -> web.Response:
+    return web.json_response({
+        "name": SHOP_NAME,
+        "short_name": SHOP_NAME[:12],
+        "start_url": "/?source=pwa",
+        "scope": "/",
+        "display": "standalone",
+        "background_color": "#f3f1ec",
+        "theme_color": "#b8913f",
+        "icons": [
+            {"src": "/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any"},
+            {"src": "/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any"},
+            {"src": "/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable"},
+        ],
+    }, content_type="application/manifest+json")
+
+
+async def service_worker(request: web.Request) -> web.FileResponse:
+    return web.FileResponse(STATIC_DIR / "sw.js", headers={
+        "Content-Type": "application/javascript", "Cache-Control": "no-cache", "Service-Worker-Allowed": "/",
+    })
+
+
+async def icon(request: web.Request) -> web.Response:
+    """Ilova ikonkasi (PNG) — bot avataridan; avatar bo'lmasa — oltin rangli 💎 belgisi."""
+    size = int(request.match_info["size"])
+    if size not in (192, 512):
+        raise web.HTTPNotFound()
+    MEDIA_CACHE.mkdir(parents=True, exist_ok=True)
+    path = MEDIA_CACHE / f"icon_{size}.png"
+    logo_path = MEDIA_CACHE / "bot_logo.jpg"
+    if not logo_path.exists():
+        try:
+            await logo(request)  # avatarni keshga yuklab olishga urinamiz
+        except web.HTTPException:
+            pass
+    stale = not path.exists() or (logo_path.exists() and logo_path.stat().st_mtime > path.stat().st_mtime)
+    if stale:
+        await asyncio.get_running_loop().run_in_executor(None, _render_icon, logo_path, path, size)
+    return web.FileResponse(path, headers={"Cache-Control": "public, max-age=86400", "Content-Type": "image/png"})
+
+
+def _render_icon(logo_path: Path, out: Path, size: int):
+    from PIL import Image, ImageDraw
+
+    if logo_path.exists():
+        img = Image.open(logo_path).convert("RGB")
+        side = min(img.size)
+        left, top = (img.width - side) // 2, (img.height - side) // 2
+        img = img.crop((left, top, left + side, top + side)).resize((size, size), Image.LANCZOS)
+    else:
+        img = Image.new("RGB", (size, size), (184, 145, 63))
+        d = ImageDraw.Draw(img)
+        s = size
+        d.polygon([(s * .30, s * .40), (s * .40, s * .28), (s * .60, s * .28), (s * .70, s * .40), (s * .50, s * .72)],
+                  fill=(255, 248, 228))
+    tmp = out.with_suffix(".tmp")
+    img.save(tmp, "PNG")
+    tmp.replace(out)
+
+
 # ---------------- Sahifa ----------------
 async def health(request: web.Request) -> web.Response:
     return web.json_response({"ok": True})
@@ -372,6 +484,12 @@ def create_app(bot: Bot) -> web.Application:
     app.router.add_post("/api/lang", set_lang)
     app.router.add_get("/media/{file_id}", media)
     app.router.add_get("/logo", logo)
+    app.router.add_post("/api/auth/telegram", auth_telegram)
+    app.router.add_post("/api/auth/logout", auth_logout)
+    app.router.add_get("/api/auth/config", auth_config)
+    app.router.add_get("/manifest.webmanifest", manifest)
+    app.router.add_get("/sw.js", service_worker)
+    app.router.add_get("/icon-{size:\\d+}.png", icon)
     app.router.add_static("/static/", STATIC_DIR, append_version=True)
     app.router.add_get("/health", health)
     return app

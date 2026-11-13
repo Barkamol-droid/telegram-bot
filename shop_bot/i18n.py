@@ -599,6 +599,21 @@ WEB_TEXTS: dict[str, dict[str, str]] = {
     "fill_required": {"uz": "Iltimos, maydonlarni to'g'ri to'ldiring", "ru": "Пожалуйста, заполните поля правильно", "tg": "Лутфан, майдонҳоро дуруст пур кунед", "kk": "Өрістерді дұрыс толтырыңыз"},
     "your_bonus": {"uz": "Brilliantlaringiz", "ru": "Ваши бриллианты", "tg": "Бриллиантҳои шумо", "kk": "Бриллианттарыңыз"},
     "language": {"uz": "Til", "ru": "Язык", "tg": "Забон", "kk": "Тіл"},
+    "open_telegram": {"uz": "Telegram'da ochish", "ru": "Открыть в Telegram", "tg": "Дар Telegram кушодан", "kk": "Telegram-да ашу"},
+    "order_done_text_web": {
+        "uz": "Buyurtma #{id} rasmiylashtirildi. Tez orada operatorimiz siz bilan bog'lanadi. Rahmat! 💎",
+        "ru": "Заказ №{id} оформлен. Наш оператор скоро свяжется с вами. Спасибо! 💎",
+        "tg": "Фармоиши №{id} ба расмият дароварда шуд. Оператори мо ба зудӣ бо шумо тамос мегирад. Ташаккур! 💎",
+        "kk": "№{id} тапсырыс ресімделді. Операторымыз жақын арада сізбен хабарласады. Рахмет! 💎",
+    },
+    "install_app": {"uz": "📲 Ilovani o'rnatish", "ru": "📲 Установить приложение", "tg": "📲 Насби барнома", "kk": "📲 Қолданбаны орнату"},
+    "ios_install_hint": {
+        "uz": "iPhone'da: pastdagi «Ulashish» ⬆️ tugmasini bosing → «Bosh ekranga qo'shish» (На экран «Домой»).",
+        "ru": "На iPhone: нажмите «Поделиться» ⬆️ внизу → «На экран „Домой“».",
+        "tg": "Дар iPhone: тугмаи «Мубодила» ⬆️-ро пахш кунед → «Ба экрани асосӣ илова кардан».",
+        "kk": "iPhone-да: төмендегі «Бөлісу» ⬆️ түймесін басыңыз → «Басты экранға қосу».",
+    },
+    "logout": {"uz": "🚪 Chiqish", "ru": "🚪 Выйти", "tg": "🚪 Баромадан", "kk": "🚪 Шығу"},
 }
 
 # Har bir kalit uchun barcha tillar borligini tekshirish (dasturchi xatolarini erta topish)

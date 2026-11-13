@@ -104,6 +104,16 @@ Bot o'zi ichida veb-server ishga tushiradi (`PORT`, standart 8080). Telegram Min
 Rasmlar va videolar Telegram'dan olinib, serverda keshlanadi. Bot API cheklovi sababli saytda **20 MB gacha**
 videolar ko'rinadi (botda — istalgan hajmda).
 
+## Brauzer va telefon ilovasi (PWA) — Telegram orqali kirish
+
+Do'kon Telegram'dan tashqarida ham ochiladi: `https://<domen>/` — mijoz «Log in with Telegram» orqali kiradi
+(savat, buyurtmalar, brilliantlar bot bilan umumiy) va «📲» tugmasi bilan telefon ekraniga ilova qilib o'rnatadi.
+
+1. @BotFather → `/setdomain` → botni tanlang → Railway domenini yozing (masalan `worker-production-xxxx.up.railway.app`,
+   `https://` siz). Busiz «Log in with Telegram» tugmasi «Bot domain invalid» deydi.
+2. Kirishda mijoz botga xabar yozishga ruxsat beradi — buyurtma xulosasi va Click/Payme to'lov tugmalari Telegram'ga keladi.
+3. Sessiya — 30 kunlik HttpOnly cookie; «🌐 → 🚪 Chiqish» bilan chiqiladi.
+
 ## Onlayn to'lov (Click, Payme)
 
 To'lov **Telegram Payments** orqali ishlaydi — alohida server yoki domen kerak emas.
@@ -134,7 +144,8 @@ shop_bot/
     ├── bonus.py     # 💎 brilliantlar: balans, tarix, sovg'a qilish
 webapp/
 ├── server.py        # sayt API (initData tekshiruvi, savat, buyurtma, media)
-└── static/index.html  # sayt (Mini App) — HTML/CSS/JS, kutubxonasiz
+├── auth.py          # brauzer rejimi: Telegram Login Widget tekshiruvi, sessiya
+└── static/          # index.html (sayt), sw.js (PWA service worker)
     └── admin.py     # admin panel
 ```
 

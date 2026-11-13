@@ -12,8 +12,10 @@ from i18n import t
 log = logging.getLogger(__name__)
 
 
-async def finish_order(bot: Bot, order_id: int, lang: str, send_summary: bool = True):
-    """Buyurtma yaratilgandan keyin: mijozga xulosa va to'lov usullari, adminlarga xabar."""
+async def finish_order(bot: Bot, order_id: int, lang: str, send_summary: bool = True) -> bool:
+    """Buyurtma yaratilgandan keyin: mijozga xulosa va to'lov usullari, adminlarga xabar.
+    Qaytaradi: mijozga Telegram'da xabar yetib bordimi."""
+    notified = False
     order = await db.get_order(order_id)
     items = await db.get_order_items(order_id)
     user_id = order["user_id"]
@@ -27,6 +29,7 @@ async def finish_order(bot: Bot, order_id: int, lang: str, send_summary: bool = 
             await bot.send_message(user_id, t("paid_by_bonus", lang))
         elif payment_providers() and order.get("payment_status") != "paid":
             await bot.send_message(user_id, t("choose_payment", lang), reply_markup=kb.payment_kb(order_id, lang))
+        notified = True
     except Exception as e:
         log.warning("Mijozga (%s) buyurtma xabari yuborilmadi: %s", user_id, e)
 
@@ -45,3 +48,4 @@ async def finish_order(bot: Bot, order_id: int, lang: str, send_summary: bool = 
                 await bot.send_location(admin_id, order["latitude"], order["longitude"])
         except Exception as e:  # admin botni bloklagan bo'lishi mumkin
             log.warning("Adminga (%s) xabar yuborilmadi: %s", admin_id, e)
+    return notified

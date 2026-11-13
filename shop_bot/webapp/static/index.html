@@ -5,6 +5,10 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
 <title>Shop</title>
 <link rel="icon" href="/logo">
+<link rel="manifest" href="/manifest.webmanifest">
+<meta name="theme-color" content="#b8913f">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
 <link rel="apple-touch-icon" href="/logo">
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
 <style>
@@ -32,7 +36,9 @@
   /* Sarlavha */
   header { position: sticky; top: 0; z-index: 10; background: var(--bg); display: flex; align-items: center;
     gap: 10px; padding: 12px 16px; box-shadow: 0 1px 0 rgba(0,0,0,.06); }
-  .logo { flex: 1; font-weight: 700; font-size: 18px; letter-spacing: .3px; display: flex; align-items: center; gap: 8px; }
+  .logo { flex: 1; min-width: 0; font-weight: 700; font-size: 18px; letter-spacing: .3px; display: flex; align-items: center; gap: 8px; }
+  .logo span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .logo img { flex: none; }
   .logo .gem { width: 30px; height: 30px; border-radius: 10px; display: grid; place-items: center;
     background: linear-gradient(135deg, var(--gold2), var(--gold)); color: #fff; font-size: 16px; }
   .icon-btn { position: relative; width: 40px; height: 40px; border-radius: 12px; background: var(--bg2);
@@ -60,6 +66,22 @@
   .card:active { transform: scale(.98); }
   .logo img { width: 32px; height: 32px; border-radius: 50%; object-fit: cover; display: block;
     box-shadow: 0 0 0 1px rgba(127,127,127,.25); }
+  /* Brauzer (PWA) rejimi: pastki asosiy tugma, orqaga tugmasi, kirish ekrani */
+  #webMain { position: fixed; left: 0; right: 0; bottom: 0; z-index: 30; border: 0; padding: 16px 16px calc(16px + env(safe-area-inset-bottom));
+    background: var(--btn); color: var(--btn-text); font-weight: 700; font-size: 16px; box-shadow: 0 -4px 16px rgba(0,0,0,.08); }
+  #webMain[disabled] { opacity: .55; }
+  #webMain.loading { opacity: .8; }
+  body.has-main { padding-bottom: 84px; }
+  body.has-main .screen { padding-bottom: 96px; }
+  #webBack { display: none; }
+  body.web #webBack.on { display: grid; }
+  body.web .screen { top: 64px; }
+  .login { min-height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center;
+    padding: 32px 24px; gap: 14px; }
+  .login img.big-logo { width: 96px; height: 96px; border-radius: 50%; object-fit: cover; box-shadow: 0 8px 24px rgba(0,0,0,.15); }
+  .login h1 { margin: 6px 0 0; font-size: 24px; }
+  .login p { margin: 0; color: var(--hint); max-width: 360px; }
+  .login .note { font-size: 13px; background: var(--bg); padding: 12px; border-radius: 12px; }
   .thumb img.ph-logo, .placeholder img.ph-logo, .mini img.ph-logo, img.ph-logo { width: 46%; height: 46%;
     border-radius: 50%; object-fit: cover; opacity: .9; }
   .card.soldout .thumb img { filter: grayscale(1); opacity: .55; }
@@ -178,8 +200,10 @@
 </head>
 <body>
 <header id="header" class="hidden">
+  <button class="icon-btn" id="webBack" aria-label="Back">←</button>
   <div class="logo"><img id="logoImg" src="/logo" alt="" onerror="this.replaceWith(Object.assign(document.createElement('div'), {className: 'gem', textContent: '💎'}))"><span id="shopName"></span></div>
   <button class="icon-btn" id="bonusBtn" title="💎">💎<span class="badge hidden" id="bonusBadge"></span></button>
+  <button class="icon-btn hidden" id="installBtn" aria-label="Install">📲</button>
   <button class="icon-btn" id="langBtn">🌐</button>
   <button class="icon-btn" id="cartBtn">🛒<span class="badge hidden" id="cartBadge"></span></button>
 </header>
@@ -191,7 +215,38 @@
 <div id="screens"></div>
 
 <script>
-const tg = window.Telegram && window.Telegram.WebApp;
+// Telegram ichida (Mini App) — Telegram'ning tugmalari; brauzerda (PWA) — sahifaning o'z tugmalari
+const tgReal = window.Telegram && window.Telegram.WebApp;
+const IN_TG = !!(tgReal && tgReal.initData);
+const tg = IN_TG ? tgReal : makeWebShim();
+function makeWebShim() {
+  let mainHandler = null, backHandler = null, mainText = "";
+  const main = document.createElement("button"); main.id = "webMain"; main.style.display = "none";
+  main.onclick = () => !main.disabled && mainHandler && mainHandler();
+  document.addEventListener("DOMContentLoaded", () => {
+    document.body.appendChild(main); document.body.classList.add("web");
+    document.getElementById("webBack").onclick = () => backHandler && backHandler();
+  });
+  return {
+    initData: "", ready() {}, expand() {}, setHeaderColor() {},
+    close() { window.open(`https://t.me/${S.data?.shop.bot || ""}`, "_blank"); },
+    showAlert(msg) { alert(msg); },
+    HapticFeedback: { impactOccurred() { navigator.vibrate?.(8); }, notificationOccurred(k) { navigator.vibrate?.(k === "error" ? [30, 40, 30] : 15); } },
+    MainButton: {
+      setText(t) { mainText = t; if (!main.classList.contains("loading")) main.textContent = t; },
+      show() { main.style.display = "block"; document.body.classList.add("has-main"); },
+      hide() { main.style.display = "none"; document.body.classList.remove("has-main"); },
+      onClick(h) { mainHandler = h; }, enable() { main.disabled = false; }, disable() { main.disabled = true; },
+      showProgress() { main.classList.add("loading"); main.textContent = "⏳"; },
+      hideProgress() { main.classList.remove("loading"); main.textContent = mainText; },
+    },
+    BackButton: {
+      show() { document.getElementById("webBack")?.classList.add("on"); },
+      hide() { document.getElementById("webBack")?.classList.remove("on"); },
+      onClick(h) { backHandler = h; },
+    },
+  };
+}
 const S = { data: null, cat: 0, query: "", stack: [], useBonus: false, product: null, size: "", color: "", qty: 1, cart: null };
 const dotStyle = (c) => c.hex ? `background:${c.hex}` : "background:conic-gradient(#e57373,#ffd54f,#81c784,#64b5f6,#ba68c8,#e57373)";
 const $ = (sel, root = document) => root.querySelector(sel);
@@ -211,7 +266,8 @@ function haptic(kind = "light") {
 async function api(path, body) {
   const res = await fetch(path, {
     method: body === undefined ? "GET" : "POST",
-    headers: { "Content-Type": "application/json", "X-Init-Data": tg.initData },
+    headers: IN_TG ? { "Content-Type": "application/json", "X-Init-Data": tg.initData } : { "Content-Type": "application/json" },
+    credentials: "same-origin",
     body: body === undefined ? undefined : JSON.stringify(body),
   });
   const json = await res.json().catch(() => ({}));
@@ -504,8 +560,8 @@ async function placeOrder() {
     while (S.stack.length) { $("#screens").lastElementChild.remove(); S.stack.pop(); }
     renderHome();
     const el = pushScreen("success", `<div class="success"><div class="check">✓</div>
-      <h2>${esc(T("order_done"))}</h2><p>${esc(T("order_done_text", { id: res.order_id }))}</p>
-      <button class="btn" id="goChat">${esc(T("go_chat"))}</button>
+      <h2>${esc(T("order_done"))}</h2><p>${esc(T(IN_TG || res.notified ? "order_done_text" : "order_done_text_web", { id: res.order_id }))}</p>
+      <button class="btn" id="goChat">${esc(T(IN_TG ? "go_chat" : "open_telegram"))}</button>
       <button class="btn secondary" id="goShop">${esc(T("continue_shopping"))}</button></div>`);
     $("#goChat", el).onclick = () => tg.close();
     $("#goShop", el).onclick = () => popScreen();
@@ -531,8 +587,11 @@ async function placeOrder() {
 function openLangSheet() {
   const bg = document.createElement("div"); bg.className = "sheet-bg";
   bg.innerHTML = `<div class="sheet"><h4 style="margin:4px 8px 10px">${esc(T("language"))}</h4>${Object.entries(S.data.langs).map(([code, name]) =>
-    `<button data-lang="${code}" class="${code === S.data.lang ? "active" : ""}">${esc(name)}</button>`).join("")}</div>`;
+    `<button data-lang="${code}" class="${code === S.data.lang ? "active" : ""}">${esc(name)}</button>`).join("")}
+    ${IN_TG ? "" : `<hr style="border:0;border-top:1px solid rgba(127,127,127,.2);margin:8px 0"><button id="logoutBtn">${esc(T("logout"))}</button>`}</div>`;
   bg.onclick = (e) => { if (e.target === bg) bg.remove(); };
+  const lo = bg.querySelector("#logoutBtn");
+  if (lo) lo.onclick = async () => { await fetch("/api/auth/logout", { method: "POST", credentials: "same-origin" }); location.reload(); };
   bg.querySelectorAll("[data-lang]").forEach((b) => b.onclick = async () => {
     bg.remove(); haptic();
     await api("/api/lang", { lang: b.dataset.lang }).catch(() => {});
@@ -554,21 +613,96 @@ async function boot() {
   if (hash.get("p") && !S.stack.length) openProduct(+hash.get("p"));
 }
 
-if (!tg || !tg.initData) {
-  document.body.innerHTML = `<div class="empty" style="padding-top:30vh"><div class="big">💎</div>Telegram → @bot</div>`;
-} else {
-  tg.ready(); tg.expand();
-  try { tg.setHeaderColor("bg_color"); } catch (e) {}
-  tg.MainButton.onClick(onMainButton);
-  tg.BackButton.onClick(() => { haptic(); popScreen(); });
-  $("#cartBtn").onclick = openCart;
-  $("#langBtn").onclick = openLangSheet;
-  $("#bonusBtn").onclick = () => toast(`💎 ${S.data.bonus.balance} = ${money(S.data.bonus.balance * S.data.bonus.value)}`);
+// ---------------- Brauzer (PWA) rejimi: kirish va o'rnatish ----------------
+const LOGIN_TEXTS = {
+  uz: { title: "Xush kelibsiz!", text: "Davom etish uchun Telegram orqali kiring. Savatingiz, buyurtmalaringiz va brilliantlaringiz bot bilan bir xil bo'ladi.",
+        note: "Kirishda «bot menga xabar yuborishi mumkin» ga ruxsat bering — buyurtma va to'lov xabarlari Telegram'ga keladi.", error: "Kirib bo'lmadi. Qaytadan urinib ko'ring." },
+  ru: { title: "Добро пожаловать!", text: "Чтобы продолжить, войдите через Telegram. Корзина, заказы и бриллианты будут общими с ботом.",
+        note: "При входе разрешите боту писать вам — сообщения о заказе и оплате придут в Telegram.", error: "Не удалось войти. Попробуйте ещё раз." },
+  tg: { title: "Хуш омадед!", text: "Барои идома тавассути Telegram ворид шавед. Сабад, фармоишҳо ва бриллиантҳо бо бот якхела мешаванд.",
+        note: "Ҳангоми ворид шудан ба бот иҷозати навиштан диҳед — паёмҳои фармоиш ва пардохт ба Telegram меоянд.", error: "Ворид шудан нашуд. Боз кӯшиш кунед." },
+  kk: { title: "Қош келдіңіз!", text: "Жалғастыру үшін Telegram арқылы кіріңіз. Себет, тапсырыстар және бриллианттар ботпен ортақ болады.",
+        note: "Кіргенде ботқа сізге жазуға рұқсат беріңіз — тапсырыс пен төлем хабарлары Telegram-ға келеді.", error: "Кіру мүмкін болмады. Қайта көріңіз." },
+};
+function browserLang() {
+  const code = (navigator.language || "uz").slice(0, 2).toLowerCase();
+  return LOGIN_TEXTS[code] ? code : "uz";
+}
+
+async function showLogin() {
+  const L = LOGIN_TEXTS[browserLang()];
+  let cfg = { bot: "", shop: "" };
+  try { cfg = await (await fetch("/api/auth/config")).json(); } catch (e) {}
+  $("#header").classList.add("hidden"); $("#home").innerHTML = ""; tg.MainButton.hide();
+  const box = document.createElement("div"); box.className = "login"; box.id = "loginBox";
+  box.innerHTML = `<img class="big-logo" src="/logo" alt="" onerror="this.style.display='none'">
+    <h1>${esc(cfg.shop)}</h1><h2 style="margin:0;font-size:18px">${esc(L.title)}</h2><p>${esc(L.text)}</p>
+    <div id="tgLogin" style="min-height:48px"></div><p class="note">${esc(L.note)}</p>`;
+  document.body.appendChild(box);
+  window.onTelegramAuth = async (user) => {
+    const res = await fetch("/api/auth/telegram", { method: "POST", credentials: "same-origin",
+      headers: { "Content-Type": "application/json" }, body: JSON.stringify(user) });
+    if (!res.ok) { toast(L.error); return; }
+    box.remove(); startApp();
+  };
+  const sc = document.createElement("script");
+  sc.async = true; sc.src = "https://telegram.org/js/telegram-widget.js?22";
+  sc.setAttribute("data-telegram-login", cfg.bot);
+  sc.setAttribute("data-size", "large");
+  sc.setAttribute("data-radius", "12");
+  sc.setAttribute("data-request-access", "write");
+  sc.setAttribute("data-onauth", "onTelegramAuth(user)");
+  $("#tgLogin").appendChild(sc);
+}
+
+let installPrompt = null;
+function setupInstall() {
+  const standalone = matchMedia("(display-mode: standalone)").matches || navigator.standalone;
+  if (standalone) return;
+  const btn = $("#installBtn");
+  const isIOS = /iphone|ipad|ipod/i.test(navigator.userAgent);
+  window.addEventListener("beforeinstallprompt", (e) => { e.preventDefault(); installPrompt = e; btn.classList.remove("hidden"); });
+  if (isIOS) btn.classList.remove("hidden");
+  btn.onclick = async () => {
+    if (installPrompt) { installPrompt.prompt(); await installPrompt.userChoice; installPrompt = null; btn.classList.add("hidden"); }
+    else if (isIOS) tg.showAlert(T("ios_install_hint"));
+  };
+  window.addEventListener("appinstalled", () => btn.classList.add("hidden"));
+}
+
+function applyWebTheme() {
+  // Telegram'dan tashqarida — tizim mavzusiga mos ranglar (Telegram ichida ularni Telegram beradi)
+  const dark = matchMedia("(prefers-color-scheme: dark)").matches;
+  const t = dark ? { bg: "#17212b", bg2: "#0e1621", text: "#f5f5f5", hint: "#8a99ab", link: "#e2b65b", btn: "#c9a14a", btnText: "#1d1b16" }
+                 : { bg: "#ffffff", bg2: "#f3f1ec", text: "#1d1b16", hint: "#8a8478", link: "#a8822e", btn: "#b8913f", btnText: "#ffffff" };
+  const r = document.documentElement.style;
+  r.setProperty("--tg-theme-bg-color", t.bg); r.setProperty("--tg-theme-secondary-bg-color", t.bg2);
+  r.setProperty("--tg-theme-text-color", t.text); r.setProperty("--tg-theme-hint-color", t.hint);
+  r.setProperty("--tg-theme-link-color", t.link); r.setProperty("--tg-theme-button-color", t.btn);
+  r.setProperty("--tg-theme-button-text-color", t.btnText);
+}
+
+function startApp() {
   boot().catch((e) => {
+    if (!IN_TG && e.status === 401) return showLogin();
     document.body.innerHTML = `<div class="empty" style="padding-top:30vh"><div class="big">⚠️</div>${
       e.status === 401 ? "Telegram → @bot" : "Error"}</div>`;
   });
 }
+
+tg.ready(); tg.expand();
+try { tg.setHeaderColor("bg_color"); } catch (e) {}
+tg.MainButton.onClick(onMainButton);
+tg.BackButton.onClick(() => { haptic(); popScreen(); });
+$("#cartBtn").onclick = openCart;
+$("#langBtn").onclick = openLangSheet;
+$("#bonusBtn").onclick = () => toast(`💎 ${S.data.bonus.balance} = ${money(S.data.bonus.balance * S.data.bonus.value)}`);
+if (!IN_TG) {
+  applyWebTheme();
+  setupInstall();
+  if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").catch(() => {});
+}
+startApp();
 </script>
 </body>
 </html>
