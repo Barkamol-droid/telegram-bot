@@ -391,6 +391,8 @@ def order_text(order, items, lang: str = "uz", for_admin: bool = False) -> str:
         lines.append(t("bonus_will_earn", lang, n=order["bonus_earned"]))
     lines.append(f"{t('status', lang)}: {status_label(order['status'], lang)}")
     lines.append(f"{t('payment', lang)}: {payment_label(order, lang)}")
+    if for_admin and order.get("courier_fee") is not None:
+        lines.append(f"🛵 Kuryer haqi: {fmt_price(order['courier_fee'])}")
     if for_admin and order.get("delivery_status"):
         steps = {"assigned": "kuryer oldi", "on_way": "yo'lda", "delivered": "topshirildi"}
         lines.append(f"🛵 Yetkazish: {steps.get(order['delivery_status'], order['delivery_status'])}")
@@ -442,7 +444,10 @@ def admin_order_kb(order_id: int) -> InlineKeyboardMarkup:
             InlineKeyboardButton(text="✅ Qabul qilish", callback_data=f"status:{order_id}:accepted"),
             InlineKeyboardButton(text="🚚 Yetkazildi", callback_data=f"status:{order_id}:delivered"),
         ],
-        [InlineKeyboardButton(text="❌ Bekor qilish", callback_data=f"status:{order_id}:cancelled")],
+        [
+            InlineKeyboardButton(text="❌ Bekor qilish", callback_data=f"status:{order_id}:cancelled"),
+            InlineKeyboardButton(text="💰 Kuryer haqi", callback_data=f"cfee:{order_id}"),
+        ],
     ])
 
 

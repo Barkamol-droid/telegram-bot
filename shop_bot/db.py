@@ -229,6 +229,9 @@ _EXTRA_COLUMNS = [
     ("orders", "courier_id", f"{_T['int']}"),
     ("orders", "delivery_status", "TEXT"),
     ("orders", "courier_msgs", "TEXT"),
+    ("orders", "courier_fee", f"{_T['int']}"),
+    ("orders", "courier_loc_msg", "INTEGER"),
+    ("orders", "delivered_at", "TEXT"),
     ("order_items", "color", "TEXT NOT NULL DEFAULT ''"),
     ("orders", "subtotal", f"{_T['int']}"),
     ("orders", "bonus_used", "INTEGER NOT NULL DEFAULT 0"),
@@ -978,7 +981,7 @@ async def set_delivery_status(order_id: int, courier_id: int, status: str) -> bo
             return False
         await db.execute("UPDATE orders SET delivery_status = ? WHERE id = ?", (status, order_id))
         if status == "delivered":
-            await db.execute("UPDATE orders SET status = 'delivered' WHERE id = ?", (order_id,))
+            await db.execute("UPDATE orders SET status = 'delivered', delivered_at = ? WHERE id = ?", (_now(), order_id))
     return True
 
 
@@ -987,3 +990,31 @@ async def courier_active_orders(courier_id: int) -> list[dict]:
         "SELECT * FROM orders WHERE courier_id = ? AND delivery_status IN ('assigned', 'on_way') "
         "AND status <> 'cancelled' ORDER BY id", (courier_id,)
     )
+
+
+# ---------------- Kuryer haqi va hisob-kitob ----------------
+async def get_default_courier_fee() -> int:
+    value = await get_meta("courier_fee")
+    return int(value) if value and value.isdigit() else 0
+
+
+async def set_default_courier_fee(amount: int):
+    await set_meta("courier_fee", str(max(int(amount), 0)))
+
+
+async def set_order_courier_fee(order_id: int, amount: int):
+    await _execute("UPDATE orders SET courier_fee = ? WHERE id = ?", (max(int(amount), 0), order_id))
+
+
+async def set_courier_location_message(order_id: int, message_id: int | None):
+    await _execute("UPDATE orders SET courier_loc_msg = ? WHERE id = ?", (message_id, order_id))
+
+
+async def courier_earnings(courier_id: int, since: str) -> dict:
+    """Kuryer topshirgan buyurtmalar soni va haqlari yig'indisi (since — "YYYY-MM-DD HH:MM" dan boshlab)."""
+    row = await _fetchone(
+        "SELECT COUNT(*) AS n, COALESCE(SUM(courier_fee), 0) AS s FROM orders "
+        "WHERE courier_id = ? AND delivery_status = 'delivered' AND delivered_at >= ?",
+        (courier_id, since),
+    )
+    return {"count": int(row["n"]), "sum": int(row["s"])}

@@ -29,7 +29,7 @@ from aiogram.types import (
 import colors as color_mod
 import db
 import keyboards as kb
-from config import all_admin_ids, fmt_phone, fmt_price
+from config import all_admin_ids, fmt_phone, fmt_price, now
 from i18n import DEFAULT_LANG, t
 
 log = logging.getLogger(__name__)
@@ -39,6 +39,7 @@ MAIN_BOT: Bot | None = None      # asosiy do'kon boti (mijoz va adminlarga xabar
 COURIER_BOT: Bot | None = None   # kuryer boti
 
 BTN_ACTIVE = "📋 Faol buyurtmalarim"
+BTN_EARNINGS = "💰 Hisobim"
 
 
 def setup(main_bot: Bot, courier_bot: Bot | None):
@@ -55,7 +56,8 @@ class CourierReg(StatesGroup):
 
 
 def courier_menu() -> ReplyKeyboardMarkup:
-    return ReplyKeyboardMarkup(keyboard=[[KeyboardButton(text=BTN_ACTIVE)]], resize_keyboard=True)
+    return ReplyKeyboardMarkup(keyboard=[[KeyboardButton(text=BTN_ACTIVE), KeyboardButton(text=BTN_EARNINGS)]],
+                               resize_keyboard=True)
 
 
 # ---------------- Matnlar ----------------
@@ -88,7 +90,28 @@ def order_text(order: dict, items: list[dict], full: bool) -> str:
         lines.append("✅ To'langan — mijozdan pul olinmaydi")
     else:
         lines.append(f"💵 Mijozdan olinadi: <b>{fmt_price(order['total'])}</b>")
+    if order.get("courier_fee") is not None:
+        lines.append(f"🛵 Yetkazish haqi: <b>{fmt_price(order['courier_fee'])}</b>")
     return "\n".join(lines)
+
+
+def closed_text(order: dict, items: list[dict], title: str) -> str:
+    """Yakunlangan buyurtma — mijozning manzili, ismi, telefoni va izohisiz (maxfiylik uchun)."""
+    lines = [title, ""]
+    for i in items:
+        lines.append(f"• {escape(i['name'])}{escape(_variant(i))} — {i['qty']} dona")
+    if order.get("courier_fee") is not None:
+        lines.append(f"\n🛵 Haqingiz: <b>{fmt_price(order['courier_fee'])}</b>")
+    return "\n".join(lines)
+
+
+async def _delete_location(order: dict):
+    if order.get("courier_loc_msg") and order.get("courier_id"):
+        try:
+            await COURIER_BOT.delete_message(order["courier_id"], order["courier_loc_msg"])
+        except Exception:
+            pass
+        await db.set_courier_location_message(order["id"], None)
 
 
 def _kb(*buttons: tuple[str, str]) -> InlineKeyboardMarkup:
@@ -120,6 +143,9 @@ async def dispatch_order(order_id: int) -> int:
     if not enabled():
         return 0
     order = await db.get_order(order_id)
+    if order.get("courier_fee") is None:
+        await db.set_order_courier_fee(order_id, await db.get_default_courier_fee())
+        order = await db.get_order(order_id)
     items = await db.get_order_items(order_id)
     text = "🆕 <b>Yangi buyurtma!</b>\n\n" + order_text(order, items, full=False)
     markup = _kb(("📦 Oldim", f"c_take:{order_id}"))
@@ -137,22 +163,50 @@ async def dispatch_order(order_id: int) -> int:
 
 
 async def notify_cancel(order_id: int):
-    """Admin buyurtmani bekor qilganda: kuryer(lar)ga xabar va tugmalarni olib tashlash."""
+    """Admin buyurtmani bekor qilganda: kuryer xabarlaridan manzil va tugmalar olib tashlanadi."""
     if not enabled():
         return
     order = await db.get_order(order_id)
     if not order:
         return
+    await _delete_location(order)
     for courier_id, message_id in db.courier_messages(order).items():
         try:
-            await COURIER_BOT.edit_message_reply_markup(chat_id=courier_id, message_id=message_id, reply_markup=None)
+            await COURIER_BOT.edit_message_text(chat_id=courier_id, message_id=message_id,
+                                                text=f"❌ Buyurtma #{order_id} bekor qilindi.", reply_markup=None)
         except Exception:
             pass
-        if courier_id == order.get("courier_id") or not order.get("courier_id"):
+        if courier_id == order.get("courier_id"):
             try:
-                await COURIER_BOT.send_message(courier_id, f"❌ Buyurtma #{order_id} bekor qilindi.")
+                await COURIER_BOT.send_message(courier_id, f"❌ Buyurtma #{order_id} bekor qilindi — yetkazish shart emas.")
             except Exception:
                 pass
+
+
+async def fee_changed(order_id: int):
+    """Admin kuryer haqini o'zgartirganda: hali olinmagan bo'lsa — takliflarni yangilash, olingan bo'lsa — kuryerga xabar."""
+    if not enabled():
+        return
+    order = await db.get_order(order_id)
+    if not order or order["status"] == "cancelled":
+        return
+    if order.get("courier_id"):
+        if order.get("delivery_status") != "delivered":
+            try:
+                await COURIER_BOT.send_message(
+                    order["courier_id"], f"💰 Buyurtma #{order_id} uchun yetkazish haqi: <b>{fmt_price(order['courier_fee'])}</b>"
+                )
+            except Exception:
+                pass
+        return
+    items = await db.get_order_items(order_id)
+    text = "🆕 <b>Yangi buyurtma!</b>\n\n" + order_text(order, items, full=False)
+    for courier_id, message_id in db.courier_messages(order).items():
+        try:
+            await COURIER_BOT.edit_message_text(chat_id=courier_id, message_id=message_id, text=text,
+                                                reply_markup=_kb(("📦 Oldim", f"c_take:{order_id}")))
+        except Exception:
+            pass
 
 
 # ---------------- Ro'yxatdan o'tish ----------------
@@ -245,7 +299,8 @@ async def take(callback: CallbackQuery):
         pass
     if order.get("latitude") is not None:
         try:
-            await callback.message.answer_location(order["latitude"], order["longitude"])
+            location_msg = await callback.message.answer_location(order["latitude"], order["longitude"])
+            await db.set_courier_location_message(order_id, location_msg.message_id)
         except TelegramBadRequest:
             pass
     # Boshqa kuryerlardagi xabarni yopish
@@ -297,13 +352,15 @@ async def done(callback: CallbackQuery):
         return
     await callback.answer("✅ Rahmat! Buyurtma topshirildi.")
     order = await db.get_order(order_id)
+    # Maxfiylik: topshirilgandan keyin mijoz manzili, ismi va telefoni kuryer chatidan o'chiriladi
     try:
         await callback.message.edit_text(
-            f"✅ <b>Buyurtma #{order_id} topshirildi</b>\n\n" + order_text(order, await db.get_order_items(order_id), full=True),
+            closed_text(order, await db.get_order_items(order_id), f"✅ <b>Buyurtma #{order_id} topshirildi</b>"),
             reply_markup=None,
         )
     except TelegramBadRequest:
         pass
+    await _delete_location(order)
     lang = _customer_lang(order)
     text = t("courier_delivered", lang, id=order_id)
     awarded = await db.award_order_bonus(order_id)
@@ -329,6 +386,22 @@ async def active_orders(message: Message):
         step = ("✅ Topshirdim", f"c_done:{order['id']}") if order["delivery_status"] == "on_way" \
             else ("🚚 Yo'ldaman", f"c_way:{order['id']}")
         await message.answer(order_text(order, await db.get_order_items(order["id"]), full=True), reply_markup=_kb(step))
+
+
+@router.message(F.text == BTN_EARNINGS)
+async def earnings(message: Message):
+    courier = await db.get_courier(message.from_user.id)
+    if not courier or courier["status"] != "active":
+        await message.answer("Siz faol kuryer emassiz. /start")
+        return
+    today = await db.courier_earnings(courier["id"], now().strftime("%Y-%m-%d 00:00"))
+    month = await db.courier_earnings(courier["id"], now().strftime("%Y-%m-01 00:00"))
+    await message.answer(
+        "💰 <b>Hisobingiz</b>\n\n"
+        f"📅 Bugun: {today['count']} ta yetkazish — <b>{fmt_price(today['sum'])}</b>\n"
+        f"🗓 Shu oy: {month['count']} ta yetkazish — <b>{fmt_price(month['sum'])}</b>",
+        reply_markup=courier_menu(),
+    )
 
 
 @router.message()

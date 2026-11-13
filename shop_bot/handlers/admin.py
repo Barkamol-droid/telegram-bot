@@ -26,7 +26,7 @@ from config import (
     payment_providers,
 )
 from i18n import DEFAULT_LANG, LANG_NAMES, all_texts, t
-from states import AddCategory, AddProduct, AdminForm, Broadcast, EditColors, EditProduct, PromoForm
+from states import AddCategory, AddProduct, AdminForm, Broadcast, CourierFee, EditColors, EditProduct, PromoForm
 
 log = logging.getLogger(__name__)
 
@@ -1337,21 +1337,71 @@ COURIER_STATUS = {"active": "✅ faol", "pending": "⏳ kutmoqda", "blocked": "�
 
 async def couriers_view():
     couriers = await db.get_couriers()
-    lines = ["🛵 <b>Kuryerlar</b>\n"]
+    default_fee = await db.get_default_courier_fee()
+    month_start = now().strftime("%Y-%m-01 00:00")
+    lines = ["🛵 <b>Kuryerlar</b>\n", f"💰 Standart yetkazish haqi: <b>{fmt_price(default_fee)}</b>\n"]
     if not courier.enabled():
         lines.append("⚠️ Kuryer boti ulanmagan. Railway Variables'ga <code>COURIER_BOT_TOKEN</code> qo'shing.\n")
     if not couriers:
         lines.append("Hali kuryer yo'q. Kuryer, kuryer botiga /start bosib, telefon raqamini yuborsin.")
     b = kb.InlineKeyboardBuilder()
+    if couriers:
+        lines.append(f"<i>Shu oy ({now():%m.%Y}) — yetkazishlar va haqlar:</i>")
     for c in couriers:
-        lines.append(f"• {escape(c['full_name'] or '')} — {escape(fmt_phone(c['phone'] or ''))} — {COURIER_STATUS.get(c['status'], c['status'])}")
+        stats = await db.courier_earnings(c["id"], month_start)
+        lines.append(f"• {escape(c['full_name'] or '')} — {escape(fmt_phone(c['phone'] or ''))} — "
+                     f"{COURIER_STATUS.get(c['status'], c['status'])}\n    📦 {stats['count']} ta — 💰 {fmt_price(stats['sum'])}")
         if c["status"] == "active":
             b.button(text=f"⛔️ {c['full_name']}", callback_data=f"cr_no:{c['id']}")
         else:
             b.button(text=f"✅ {c['full_name']}", callback_data=f"cr_ok:{c['id']}")
+    b.button(text="💰 Standart haqni o'zgartirish", callback_data="cfee_def")
     b.button(text="⬅️ Admin panel", callback_data="adm:menu")
     b.adjust(1)
     return "\n".join(lines), b.as_markup()
+
+
+@router.callback_query(F.data == "cfee_def")
+@router.callback_query(F.data.startswith("cfee:"))
+async def cb_courier_fee(callback: CallbackQuery, state: FSMContext):
+    order_id = int(callback.data.split(":")[1]) if callback.data.startswith("cfee:") else None
+    if order_id is not None:
+        order = await db.get_order(order_id)
+        if not order:
+            await callback.answer("Buyurtma topilmadi", show_alert=True)
+            return
+        current = order.get("courier_fee")
+        if current is None:
+            current = await db.get_default_courier_fee()
+        prompt = (f"💰 Buyurtma #{order_id} uchun kuryer haqi (hozir: <b>{fmt_price(current)}</b>).\n"
+                  "Yangi summani yozing, masalan <code>25000</code>:")
+    else:
+        prompt = (f"💰 Standart yetkazish haqi (hozir: <b>{fmt_price(await db.get_default_courier_fee())}</b>).\n"
+                  "Har bir yangi buyurtmaga shu summa qo'yiladi; alohida buyurtmada «💰 Kuryer haqi» bilan o'zgartirasiz.\n"
+                  "Yangi summani yozing, masalan <code>20000</code>:")
+    await state.set_state(CourierFee.amount)
+    await state.update_data(fee_order_id=order_id)
+    await callback.message.answer(prompt, reply_markup=kb.cancel_kb(DEFAULT_LANG))
+    await callback.answer()
+
+
+@router.message(CourierFee.amount, F.text)
+async def courier_fee_amount(message: Message, state: FSMContext, lang: str):
+    raw = message.text.replace(" ", "").replace(",", "")
+    if not raw.isdigit() or int(raw) > 10_000_000:
+        await message.answer("❗️ Summani raqamda yozing, masalan: 20000")
+        return
+    amount = int(raw)
+    order_id = (await state.get_data()).get("fee_order_id")
+    await state.clear()
+    if order_id is None:
+        await db.set_default_courier_fee(amount)
+        await back_to_panel(message, lang, f"✅ Standart yetkazish haqi: <b>{fmt_price(amount)}</b>")
+        return
+    await db.set_order_courier_fee(order_id, amount)
+    await courier.fee_changed(order_id)
+    await message.answer(f"✅ Buyurtma #{order_id} uchun kuryer haqi: <b>{fmt_price(amount)}</b>",
+                         reply_markup=kb.main_menu(lang, True))
 
 
 @router.callback_query(F.data == "adm:couriers")

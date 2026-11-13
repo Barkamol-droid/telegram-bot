@@ -55,3 +55,7 @@ class EditProduct(StatesGroup):
     text = State()
     photos = State()
     video = State()
+
+
+class CourierFee(StatesGroup):
+    amount = State()

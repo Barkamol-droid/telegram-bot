@@ -125,7 +125,11 @@ Buyurtmalar alohida kuryer botiga keladi; kuryer «📦 Oldim → 🚚 Yo'ldaman
 3. Yangi buyurtma barcha faol kuryerlarga boradi (mijoz ismi/telefoni — faqat olgan kuryerga). Birinchi «📦 Oldim»
    bosgan oladi (bir vaqtda bosilsa ham faqat bittasi); mijoz har bosqichda o'z tilida xabar oladi; «Topshirdim» —
    buyurtma «Yetkazildi», brilliantlar beriladi. Admin bekor qilsa — kuryerlarga xabar boradi.
-4. Admin panel → «🛵 Kuryerlar» — ro'yxat, faollashtirish / o'chirish.
+4. Admin panel → «🛵 Kuryerlar» — ro'yxat, faollashtirish / o'chirish, shu oydagi yetkazishlar va haqlar.
+5. 💰 Kuryer haqi: «🛵 Kuryerlar → 💰 Standart haqni o'zgartirish» — har yangi buyurtmaga qo'yiladi; alohida buyurtmada
+   admin xabaridagi «💰 Kuryer haqi» bilan o'zgartiriladi (kuryer olishidan oldin ham, keyin ham). Kuryerda «💰 Hisobim».
+6. 🔒 Maxfiylik: buyurtmani bir kuryer olsa — boshqalarda manzil o'chadi; «Topshirdim» yoki bekor qilinganda —
+   kuryer chatidan mijoz manzili, ismi, telefoni va lokatsiyasi o'chiriladi.
 
 ## Onlayn to'lov (Click, Payme)
 
