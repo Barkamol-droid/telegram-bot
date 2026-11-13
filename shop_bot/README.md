@@ -128,7 +128,11 @@ Buyurtmalar alohida kuryer botiga keladi; kuryer «📦 Oldim → 🚚 Yo'ldaman
 4. Admin panel → «🛵 Kuryerlar» — ro'yxat, faollashtirish / o'chirish, shu oydagi yetkazishlar va haqlar.
 5. 💰 Kuryer haqi: «🛵 Kuryerlar → 💰 Standart haqni o'zgartirish» — har yangi buyurtmaga qo'yiladi; alohida buyurtmada
    admin xabaridagi «💰 Kuryer haqi» bilan o'zgartiriladi (kuryer olishidan oldin ham, keyin ham). Kuryerda «💰 Hisobim».
-6. 🔒 Maxfiylik: buyurtmani bir kuryer olsa — boshqalarda manzil o'chadi; «Topshirdim» yoki bekor qilinganda —
+6. Kuryer qo'shimcha tugmalari: «↩️ Voz kechish» (yo'lga chiqmasidan oldin — buyurtma boshqa kuryerlarga qayta
+   yuboriladi), «⚠️ Muammo» (sabab tanlanadi — admin: «❌ Bekor qilish va qaytarish», «🔁 Qayta urinsin»,
+   «🔄 Boshqa kuryerga»), «💬 Adminga yozish» (admin «↩️ Javob berish» bilan javob qaytaradi).
+   Bekor qilingan buyurtma kuryerda bo'lsa — «🏪 Do'konga topshirdim» bilan mahsulot qaytarilgani belgilanadi.
+7. 🔒 Maxfiylik: buyurtmani bir kuryer olsa — boshqalarda manzil o'chadi; «Topshirdim» yoki bekor qilinganda —
    kuryer chatidan mijoz manzili, ismi, telefoni va lokatsiyasi o'chiriladi.
 
 ## Onlayn to'lov (Click, Payme)

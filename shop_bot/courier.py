@@ -55,6 +55,38 @@ class CourierReg(StatesGroup):
     phone = State()
 
 
+class CourierText(StatesGroup):
+    problem = State()   # «Boshqa sabab» matni
+    message = State()   # adminga xabar
+
+
+BTN_CANCEL = "❌ Bekor qilish"
+PROBLEM_REASONS = {
+    "noanswer": "📵 Mijoz javob bermayapti",
+    "refused": "🙅 Mijoz qabul qilishdan bosh tortdi",
+    "address": "📍 Manzil noto'g'ri / topilmadi",
+}
+
+
+def step_kb(order: dict) -> InlineKeyboardMarkup | None:
+    """Buyurtma bosqichiga mos kuryer tugmalari."""
+    oid, status = order["id"], order.get("delivery_status")
+    msg = ("💬 Adminga yozish", f"c_msg:{oid}")
+    if status == "assigned":
+        return _kb(("🚚 Yo'ldaman", f"c_way:{oid}"), ("⚠️ Muammo", f"c_prob:{oid}"), msg, ("↩️ Voz kechish", f"c_rel:{oid}"))
+    if status == "on_way":
+        return _kb(("✅ Topshirdim", f"c_done:{oid}"), ("⚠️ Muammo", f"c_prob:{oid}"), msg)
+    if status == "problem":
+        return _kb(msg)
+    if status == "returning":
+        return _kb(("🏪 Do'konga topshirdim", f"c_ret:{oid}"), msg)
+    return None
+
+
+def text_entry_kb() -> ReplyKeyboardMarkup:
+    return ReplyKeyboardMarkup(keyboard=[[KeyboardButton(text=BTN_CANCEL)]], resize_keyboard=True)
+
+
 def courier_menu() -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(keyboard=[[KeyboardButton(text=BTN_ACTIVE), KeyboardButton(text=BTN_EARNINGS)]],
                                resize_keyboard=True)
@@ -138,8 +170,9 @@ def _customer_lang(order: dict) -> str:
 
 
 # ---------------- Buyurtmani kuryerlarga tarqatish ----------------
-async def dispatch_order(order_id: int) -> int:
-    """Yangi buyurtmani barcha faol kuryerlarga yuboradi. Qaytaradi: nechta kuryerga yetdi."""
+async def dispatch_order(order_id: int, exclude: int | None = None) -> int:
+    """Yangi buyurtmani barcha faol kuryerlarga yuboradi (exclude — bu kuryerga yubormaslik).
+    Qaytaradi: nechta kuryerga yetdi."""
     if not enabled():
         return 0
     order = await db.get_order(order_id)
@@ -151,6 +184,8 @@ async def dispatch_order(order_id: int) -> int:
     markup = _kb(("📦 Oldim", f"c_take:{order_id}"))
     sent: dict[int, int] = {}
     for courier in await db.get_couriers("active"):
+        if courier["id"] == exclude:
+            continue
         try:
             msg = await COURIER_BOT.send_message(courier["id"], text, reply_markup=markup)
             sent[courier["id"]] = msg.message_id
@@ -163,22 +198,34 @@ async def dispatch_order(order_id: int) -> int:
 
 
 async def notify_cancel(order_id: int):
-    """Admin buyurtmani bekor qilganda: kuryer xabarlaridan manzil va tugmalar olib tashlanadi."""
+    """Admin buyurtmani bekor qilganda: kuryer xabarlaridan manzil olib tashlanadi.
+    Buyurtma kuryerda bo'lsa — mahsulotni do'konga qaytarish so'raladi («🏪 Do'konga topshirdim»)."""
     if not enabled():
         return
     order = await db.get_order(order_id)
     if not order:
         return
     await _delete_location(order)
+    returning = await db.set_returning(order_id)
+    order = await db.get_order(order_id)
+    items = await db.get_order_items(order_id)
     for courier_id, message_id in db.courier_messages(order).items():
+        is_holder = courier_id == order.get("courier_id")
+        text = (closed_text(order, items, f"❌ <b>Buyurtma #{order_id} bekor qilindi</b> — 🏪 mahsulotni do'konga qaytaring")
+                if is_holder and returning else f"❌ Buyurtma #{order_id} bekor qilindi.")
         try:
-            await COURIER_BOT.edit_message_text(chat_id=courier_id, message_id=message_id,
-                                                text=f"❌ Buyurtma #{order_id} bekor qilindi.", reply_markup=None)
+            await COURIER_BOT.edit_message_text(chat_id=courier_id, message_id=message_id, text=text,
+                                                reply_markup=step_kb(order) if is_holder and returning else None)
         except Exception:
             pass
-        if courier_id == order.get("courier_id"):
+        if is_holder:
             try:
-                await COURIER_BOT.send_message(courier_id, f"❌ Buyurtma #{order_id} bekor qilindi — yetkazish shart emas.")
+                await COURIER_BOT.send_message(
+                    courier_id,
+                    f"❌ Buyurtma #{order_id} bekor qilindi. 🏪 Mahsulotni do'konga qaytaring va «🏪 Do'konga topshirdim» ni bosing."
+                    if returning else f"❌ Buyurtma #{order_id} bekor qilindi — yetkazish shart emas.",
+                    reply_markup=step_kb(order) if returning else None,
+                )
             except Exception:
                 pass
 
@@ -293,7 +340,7 @@ async def take(callback: CallbackQuery):
     try:
         await callback.message.edit_text(
             "📦 <b>Siz oldingiz</b>\n\n" + order_text(order, items, full=True),
-            reply_markup=_kb(("🚚 Yo'ldaman", f"c_way:{order_id}")),
+            reply_markup=step_kb(order),
         )
     except TelegramBadRequest:
         pass
@@ -330,11 +377,11 @@ async def on_way(callback: CallbackQuery):
         await callback.answer("Bu amalni bajarib bo'lmaydi (buyurtma holati o'zgargan).", show_alert=True)
         return
     await callback.answer("🚚 Yo'ldasiz")
+    order = await db.get_order(order_id)
     try:
-        await callback.message.edit_reply_markup(reply_markup=_kb(("✅ Topshirdim", f"c_done:{order_id}")))
+        await callback.message.edit_reply_markup(reply_markup=step_kb(order))
     except TelegramBadRequest:
         pass
-    order = await db.get_order(order_id)
     lang = _customer_lang(order)
     await _notify_customer(order, t("courier_on_way", lang, id=order_id, name=escape(courier["full_name"] or ""),
                                     phone=escape(fmt_phone(courier["phone"] or ""))))
@@ -383,9 +430,244 @@ async def active_orders(message: Message):
         await message.answer("Hozir faol buyurtmangiz yo'q. Yangi buyurtmalar kelganda xabar beramiz.")
         return
     for order in orders:
-        step = ("✅ Topshirdim", f"c_done:{order['id']}") if order["delivery_status"] == "on_way" \
-            else ("🚚 Yo'ldaman", f"c_way:{order['id']}")
-        await message.answer(order_text(order, await db.get_order_items(order["id"]), full=True), reply_markup=_kb(step))
+        items = await db.get_order_items(order["id"])
+        if order["delivery_status"] == "returning":
+            text = closed_text(order, items, f"🏪 <b>Buyurtma #{order['id']} bekor qilingan — mahsulotni do'konga qaytaring</b>")
+        else:
+            text = order_text(order, items, full=True)
+            if order["delivery_status"] == "problem":
+                text = "⏳ <b>Admin qarorini kuting</b>\n\n" + text
+        await message.answer(text, reply_markup=step_kb(order))
+
+
+# ---------------- Voz kechish ----------------
+@router.callback_query(F.data.startswith("c_rel:"))
+async def release_ask(callback: CallbackQuery):
+    if not await _active_courier(callback):
+        return
+    order_id = int(callback.data.split(":")[1])
+    await callback.answer()
+    try:
+        await callback.message.edit_reply_markup(reply_markup=_kb(
+            ("✅ Ha, voz kechaman", f"c_relok:{order_id}"), ("⬅️ Yo'q, davom etaman", f"c_back:{order_id}")))
+    except TelegramBadRequest:
+        pass
+
+
+@router.callback_query(F.data.startswith("c_back:"))
+async def back_to_steps(callback: CallbackQuery, state: FSMContext):
+    await state.clear()
+    order = await db.get_order(int(callback.data.split(":")[1]))
+    await callback.answer()
+    if order and order.get("courier_id") == callback.from_user.id:
+        try:
+            await callback.message.edit_reply_markup(reply_markup=step_kb(order))
+        except TelegramBadRequest:
+            pass
+
+
+@router.callback_query(F.data.startswith("c_relok:"))
+async def release_confirm(callback: CallbackQuery):
+    courier = await _active_courier(callback)
+    if not courier:
+        return
+    order_id = int(callback.data.split(":")[1])
+    order = await db.get_order(order_id)
+    if not order or not await db.release_order(order_id, courier["id"]):
+        await callback.answer("Voz kechib bo'lmaydi: yo'lga chiqqansiz yoki buyurtma holati o'zgargan. "
+                              "«⚠️ Muammo» yoki «💬 Adminga yozish» dan foydalaning.", show_alert=True)
+        return
+    await _delete_location(order)
+    await callback.answer("↩️ Voz kechdingiz")
+    try:
+        await callback.message.edit_text(
+            closed_text(order, await db.get_order_items(order_id),
+                        f"↩️ <b>Siz buyurtma #{order_id} dan voz kechdingiz.</b> Mahsulot sizda bo'lsa, do'konga qaytaring."),
+            reply_markup=None,
+        )
+    except TelegramBadRequest:
+        pass
+    sent = await dispatch_order(order_id, exclude=courier["id"])
+    await _notify_admins(f"↩️ Kuryer <b>{escape(courier['full_name'] or '')}</b> buyurtma #{order_id} dan voz kechdi. "
+                         f"Buyurtma qayta {sent} ta kuryerga yuborildi.")
+
+
+# ---------------- Muammo (manzilda) ----------------
+@router.callback_query(F.data.startswith("c_prob:"))
+async def problem_ask(callback: CallbackQuery):
+    if not await _active_courier(callback):
+        return
+    order_id = int(callback.data.split(":")[1])
+    await callback.answer()
+    buttons = [(text, f"cpr:{order_id}:{code}") for code, text in PROBLEM_REASONS.items()]
+    buttons += [("✍️ Boshqa sabab", f"cpr:{order_id}:other"), ("⬅️ Orqaga", f"c_back:{order_id}")]
+    try:
+        await callback.message.edit_reply_markup(reply_markup=_kb(*buttons))
+    except TelegramBadRequest:
+        pass
+
+
+async def _submit_problem(message: Message, courier: dict, order_id: int, reason: str, source_message: Message | None):
+    if not await db.report_problem(order_id, courier["id"], reason):
+        await message.answer("Bu buyurtma bo'yicha muammo yuborib bo'lmaydi (holati o'zgargan).")
+        return
+    order = await db.get_order(order_id)
+    if source_message:
+        try:
+            await source_message.edit_reply_markup(reply_markup=step_kb(order))
+        except TelegramBadRequest:
+            pass
+    await message.answer("⏳ Adminga yuborildi. Qarorini kuting — javob shu yerga keladi.", reply_markup=courier_menu())
+    items = await db.get_order_items(order_id)
+    await _notify_admins(
+        f"⚠️ <b>Yetkazishda muammo — buyurtma #{order_id}</b>\n\n"
+        f"Sabab: <b>{escape(reason)}</b>\n"
+        f"🛵 Kuryer: {escape(courier['full_name'] or '')}, {escape(fmt_phone(courier['phone'] or ''))}\n\n"
+        + kb.order_text(order, items, "uz", for_admin=True),
+        InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="❌ Bekor qilish va qaytarish", callback_data=f"cpa:{order_id}:cancel")],
+            [InlineKeyboardButton(text="🔁 Qayta urinsin", callback_data=f"cpa:{order_id}:retry"),
+             InlineKeyboardButton(text="🔄 Boshqa kuryerga", callback_data=f"cpa:{order_id}:reassign")],
+            [InlineKeyboardButton(text="↩️ Kuryerga javob", callback_data=f"crep:{courier['id']}:{order_id}")],
+        ]),
+    )
+
+
+@router.callback_query(F.data.startswith("cpr:"))
+async def problem_reason(callback: CallbackQuery, state: FSMContext):
+    courier = await _active_courier(callback)
+    if not courier:
+        return
+    _, order_id, code = callback.data.split(":")
+    await callback.answer()
+    if code == "other":
+        await state.set_state(CourierText.problem)
+        await state.update_data(order_id=int(order_id), source_message_id=callback.message.message_id)
+        await callback.message.answer("✍️ Muammoni qisqacha yozing:", reply_markup=text_entry_kb())
+        return
+    await _submit_problem(callback.message, courier, int(order_id), PROBLEM_REASONS.get(code, code), callback.message)
+
+
+@router.message(F.text == BTN_CANCEL)
+async def cancel_text(message: Message, state: FSMContext):
+    await state.clear()
+    await message.answer("Bekor qilindi.", reply_markup=courier_menu())
+
+
+@router.message(CourierText.problem, F.text)
+async def problem_text(message: Message, state: FSMContext):
+    courier = await db.get_courier(message.from_user.id)
+    data = await state.get_data()
+    await state.clear()
+    if not courier or courier["status"] != "active":
+        await message.answer("Siz faol kuryer emassiz.")
+        return
+    await _submit_problem(message, courier, data["order_id"], message.text.strip()[:400], None)
+
+
+# ---------------- Adminga xabar ----------------
+@router.callback_query(F.data.startswith("c_msg:"))
+async def message_ask(callback: CallbackQuery, state: FSMContext):
+    if not await _active_courier(callback):
+        return
+    await state.set_state(CourierText.message)
+    await state.update_data(order_id=int(callback.data.split(":")[1]))
+    await callback.message.answer("💬 Adminga xabaringizni yozing:", reply_markup=text_entry_kb())
+    await callback.answer()
+
+
+@router.message(CourierText.message, F.text)
+async def message_send(message: Message, state: FSMContext):
+    courier = await db.get_courier(message.from_user.id)
+    order_id = (await state.get_data()).get("order_id")
+    await state.clear()
+    if not courier or courier["status"] != "active":
+        await message.answer("Siz faol kuryer emassiz.")
+        return
+    await _notify_admins(
+        f"💬 <b>Kuryerdan xabar</b> (buyurtma #{order_id})\n"
+        f"🛵 {escape(courier['full_name'] or '')}, {escape(fmt_phone(courier['phone'] or ''))}\n\n{escape(message.text[:2000])}",
+        InlineKeyboardMarkup(inline_keyboard=[[
+            InlineKeyboardButton(text="↩️ Javob berish", callback_data=f"crep:{courier['id']}:{order_id}")
+        ]]),
+    )
+    await message.answer("✅ Xabar adminga yuborildi. Javob shu yerga keladi.", reply_markup=courier_menu())
+
+
+# ---------------- Do'konga qaytarish ----------------
+@router.callback_query(F.data.startswith("c_ret:"))
+async def returned(callback: CallbackQuery):
+    courier = await _active_courier(callback)
+    if not courier:
+        return
+    order_id = int(callback.data.split(":")[1])
+    if not await db.mark_returned(order_id, courier["id"]):
+        await callback.answer("Bu amalni bajarib bo'lmaydi.", show_alert=True)
+        return
+    order = await db.get_order(order_id)
+    await callback.answer("✅ Rahmat!")
+    try:
+        await callback.message.edit_text(
+            closed_text(order, await db.get_order_items(order_id), f"🏪 <b>Buyurtma #{order_id} do'konga qaytarildi</b>"),
+            reply_markup=None,
+        )
+    except TelegramBadRequest:
+        pass
+    await _notify_admins(f"🏪 Buyurtma #{order_id} mahsulotlari do'konga qaytarildi (kuryer: {escape(courier['full_name'] or '')}).")
+
+
+# ---------------- Admin qarorlari (asosiy botdan chaqiriladi) ----------------
+async def problem_retry(order_id: int) -> bool:
+    if not await db.resolve_problem_retry(order_id):
+        return False
+    order = await db.get_order(order_id)
+    try:
+        await COURIER_BOT.send_message(
+            order["courier_id"],
+            f"🔁 <b>Admin: buyurtma #{order_id} ni yetkazishni davom ettiring.</b>\n\n"
+            + order_text(order, await db.get_order_items(order_id), full=True),
+            reply_markup=step_kb(order),
+        )
+    except Exception as e:
+        log.warning("Kuryerga yuborilmadi: %s", e)
+    return True
+
+
+async def problem_reassign(order_id: int) -> int | None:
+    """Buyurtmani joriy kuryerdan olib, boshqa kuryerlarga qayta yuboradi. Qaytaradi: nechta kuryerga yuborildi."""
+    order = await db.get_order(order_id)
+    if not order:
+        return None
+    await _delete_location(order)
+    old = await db.admin_release_order(order_id)
+    if old is None and order.get("courier_id") is not None:
+        return None
+    items = await db.get_order_items(order_id)
+    if old:
+        for courier_id, message_id in db.courier_messages(order).items():
+            if courier_id == old:
+                try:
+                    await COURIER_BOT.edit_message_text(
+                        chat_id=courier_id, message_id=message_id, reply_markup=None,
+                        text=closed_text(order, items, f"🔄 <b>Buyurtma #{order_id} boshqa kuryerga berildi.</b> "
+                                                       "Mahsulot sizda bo'lsa, do'konga qaytaring."))
+                except Exception:
+                    pass
+        try:
+            await COURIER_BOT.send_message(old, f"🔄 Admin buyurtma #{order_id} ni boshqa kuryerga berdi.")
+        except Exception:
+            pass
+    return await dispatch_order(order_id, exclude=old)
+
+
+async def reply_to_courier(courier_id: int, order_id: str, text: str) -> bool:
+    try:
+        await COURIER_BOT.send_message(courier_id, f"💬 <b>Admin</b> (buyurtma #{order_id}):\n{escape(text)}",
+                                       reply_markup=courier_menu())
+        return True
+    except Exception as e:
+        log.warning("Kuryerga (%s) javob yuborilmadi: %s", courier_id, e)
+        return False
 
 
 @router.message(F.text == BTN_EARNINGS)

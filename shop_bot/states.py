@@ -59,3 +59,7 @@ class EditProduct(StatesGroup):
 
 class CourierFee(StatesGroup):
     amount = State()
+
+
+class AdminReply(StatesGroup):
+    text = State()

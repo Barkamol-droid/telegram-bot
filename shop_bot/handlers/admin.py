@@ -26,7 +26,7 @@ from config import (
     payment_providers,
 )
 from i18n import DEFAULT_LANG, LANG_NAMES, all_texts, t
-from states import AddCategory, AddProduct, AdminForm, Broadcast, CourierFee, EditColors, EditProduct, PromoForm
+from states import AddCategory, AddProduct, AdminForm, AdminReply, Broadcast, CourierFee, EditColors, EditProduct, PromoForm
 
 log = logging.getLogger(__name__)
 
@@ -1401,6 +1401,72 @@ async def courier_fee_amount(message: Message, state: FSMContext, lang: str):
     await db.set_order_courier_fee(order_id, amount)
     await courier.fee_changed(order_id)
     await message.answer(f"✅ Buyurtma #{order_id} uchun kuryer haqi: <b>{fmt_price(amount)}</b>",
+                         reply_markup=kb.main_menu(lang, True))
+
+
+# ---------------- Kuryer muammolari bo'yicha qaror va kuryerga javob ----------------
+async def cancel_order_full(bot: Bot, order_id: int) -> bool:
+    """Buyurtmani bekor qilish: brilliantlar va qoldiq qaytadi, kuryerga «qaytaring», mijozga xabar."""
+    order = await db.get_order(order_id)
+    if not order or order["status"] in ("cancelled", "delivered"):
+        return False
+    await db.set_order_status(order_id, "cancelled")
+    lang = order.get("lang") or await db.get_user_lang(order["user_id"]) or DEFAULT_LANG
+    notes = [t("status_changed", lang, id=order_id, status=kb.status_label("cancelled", lang))]
+    result = await db.cancel_order_bonus(order_id)
+    if result["refunded"]:
+        notes.append(t("bonus_refund_msg", lang, id=order_id, n=result["refunded"]))
+    await db.restore_order_stock(order_id)
+    await courier.notify_cancel(order_id)
+    try:
+        await bot.send_message(order["user_id"], "\n\n".join(notes))
+    except Exception as e:
+        log.warning("Mijozga (%s) xabar yuborilmadi: %s", order["user_id"], e)
+    return True
+
+
+@router.callback_query(F.data.startswith("cpa:"))
+async def cb_problem_action(callback: CallbackQuery, bot: Bot):
+    _, order_id, action = callback.data.split(":")
+    order_id = int(order_id)
+    if action == "cancel":
+        ok = await cancel_order_full(bot, order_id)
+        note = ("❌ Buyurtma bekor qilindi. Mijozga xabar berildi, qoldiq va brilliantlar qaytarildi; "
+                "kuryerga «mahsulotni do'konga qaytaring» deyildi.") if ok else "Buyurtmani bekor qilib bo'lmaydi."
+    elif action == "retry":
+        ok = await courier.problem_retry(order_id)
+        note = "🔁 Kuryerga yetkazishni davom ettirish aytildi." if ok else "Holat o'zgargan — qayta urinish mumkin emas."
+    elif action == "reassign":
+        sent = await courier.problem_reassign(order_id)
+        ok = sent is not None
+        note = f"🔄 Buyurtma boshqa kuryerlarga yuborildi ({sent} ta)." if ok else "Qayta tarqatib bo'lmaydi."
+    else:
+        await callback.answer()
+        return
+    await callback.answer("✅" if ok else "❗️", show_alert=not ok)
+    try:
+        await callback.message.edit_reply_markup(reply_markup=None)
+    except TelegramBadRequest:
+        pass
+    await callback.message.answer(f"Buyurtma #{order_id}: {note}")
+
+
+@router.callback_query(F.data.startswith("crep:"))
+async def cb_reply_courier(callback: CallbackQuery, state: FSMContext):
+    _, courier_id, order_id = callback.data.split(":")
+    await state.set_state(AdminReply.text)
+    await state.update_data(reply_courier_id=int(courier_id), reply_order_id=order_id)
+    await callback.message.answer(f"✍️ Kuryerga javobingizni yozing (buyurtma #{order_id}):",
+                                  reply_markup=kb.cancel_kb(DEFAULT_LANG))
+    await callback.answer()
+
+
+@router.message(AdminReply.text, F.text)
+async def reply_courier_text(message: Message, state: FSMContext, lang: str):
+    data = await state.get_data()
+    await state.clear()
+    ok = await courier.reply_to_courier(data["reply_courier_id"], data["reply_order_id"], message.text[:2000])
+    await message.answer("✅ Javob kuryerga yuborildi." if ok else "❗️ Kuryerga yuborib bo'lmadi.",
                          reply_markup=kb.main_menu(lang, True))
 
 

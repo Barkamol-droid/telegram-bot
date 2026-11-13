@@ -232,6 +232,7 @@ _EXTRA_COLUMNS = [
     ("orders", "courier_fee", f"{_T['int']}"),
     ("orders", "courier_loc_msg", "INTEGER"),
     ("orders", "delivered_at", "TEXT"),
+    ("orders", "delivery_problem", "TEXT"),
     ("order_items", "color", "TEXT NOT NULL DEFAULT ''"),
     ("orders", "subtotal", f"{_T['int']}"),
     ("orders", "bonus_used", "INTEGER NOT NULL DEFAULT 0"),
@@ -987,8 +988,9 @@ async def set_delivery_status(order_id: int, courier_id: int, status: str) -> bo
 
 async def courier_active_orders(courier_id: int) -> list[dict]:
     return await _fetchall(
-        "SELECT * FROM orders WHERE courier_id = ? AND delivery_status IN ('assigned', 'on_way') "
-        "AND status <> 'cancelled' ORDER BY id", (courier_id,)
+        "SELECT * FROM orders WHERE courier_id = ? AND "
+        "(delivery_status IN ('assigned', 'on_way', 'problem') AND status <> 'cancelled' OR delivery_status = 'returning') "
+        "ORDER BY id", (courier_id,)
     )
 
 
@@ -1018,3 +1020,72 @@ async def courier_earnings(courier_id: int, since: str) -> dict:
         (courier_id, since),
     )
     return {"count": int(row["n"]), "sum": int(row["s"])}
+
+
+# ---------------- Kuryer: voz kechish, muammo, qaytarish ----------------
+async def release_order(order_id: int, courier_id: int) -> bool:
+    """Kuryer yo'lga chiqmasidan oldin buyurtmadan voz kechadi — buyurtma yana hech kimga biriktirilmagan bo'ladi."""
+    async with _tx() as db:
+        order = await db.fetchone("SELECT courier_id, delivery_status, status FROM orders WHERE id = ?", (order_id,))
+        if (not order or order["courier_id"] != courier_id or order["status"] == "cancelled"
+                or order["delivery_status"] != "assigned"):
+            return False
+        await db.execute(
+            "UPDATE orders SET courier_id = NULL, delivery_status = NULL, courier_msgs = NULL, courier_loc_msg = NULL "
+            "WHERE id = ?", (order_id,)
+        )
+    return True
+
+
+async def report_problem(order_id: int, courier_id: int, reason: str) -> bool:
+    async with _tx() as db:
+        order = await db.fetchone("SELECT courier_id, delivery_status, status FROM orders WHERE id = ?", (order_id,))
+        if (not order or order["courier_id"] != courier_id or order["status"] == "cancelled"
+                or order["delivery_status"] not in ("assigned", "on_way", "problem")):
+            return False
+        await db.execute("UPDATE orders SET delivery_status = 'problem', delivery_problem = ? WHERE id = ?",
+                         (reason[:500], order_id))
+    return True
+
+
+async def resolve_problem_retry(order_id: int) -> bool:
+    """Admin: «Qayta urinsin» — kuryer yetkazishni davom ettiradi."""
+    async with _tx() as db:
+        order = await db.fetchone("SELECT delivery_status, status FROM orders WHERE id = ?", (order_id,))
+        if not order or order["status"] == "cancelled" or order["delivery_status"] != "problem":
+            return False
+        await db.execute("UPDATE orders SET delivery_status = 'on_way' WHERE id = ?", (order_id,))
+    return True
+
+
+async def admin_release_order(order_id: int) -> int | None:
+    """Admin: «Boshqa kuryerga» — buyurtmani joriy kuryerdan olib, qayta tarqatishga tayyorlaydi.
+    Qaytaradi: oldingi kuryer ID si (yoki None)."""
+    async with _tx() as db:
+        order = await db.fetchone("SELECT courier_id, delivery_status, status FROM orders WHERE id = ?", (order_id,))
+        if not order or order["status"] in ("cancelled", "delivered") or order["delivery_status"] == "delivered":
+            return None
+        await db.execute(
+            "UPDATE orders SET courier_id = NULL, delivery_status = NULL, courier_msgs = NULL, courier_loc_msg = NULL, "
+            "delivery_problem = NULL WHERE id = ?", (order_id,)
+        )
+    return order["courier_id"]
+
+
+async def set_returning(order_id: int) -> bool:
+    """Bekor qilingan buyurtma kuryerda bo'lsa — mahsulotni do'konga qaytarish kerak."""
+    async with _tx() as db:
+        order = await db.fetchone("SELECT courier_id, delivery_status FROM orders WHERE id = ?", (order_id,))
+        if not order or not order["courier_id"] or order["delivery_status"] not in ("assigned", "on_way", "problem"):
+            return False
+        await db.execute("UPDATE orders SET delivery_status = 'returning' WHERE id = ?", (order_id,))
+    return True
+
+
+async def mark_returned(order_id: int, courier_id: int) -> bool:
+    async with _tx() as db:
+        order = await db.fetchone("SELECT courier_id, delivery_status FROM orders WHERE id = ?", (order_id,))
+        if not order or order["courier_id"] != courier_id or order["delivery_status"] != "returning":
+            return False
+        await db.execute("UPDATE orders SET delivery_status = 'returned' WHERE id = ?", (order_id,))
+    return True
