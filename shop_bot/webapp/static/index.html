@@ -1,0 +1,708 @@
+<!doctype html>
+<html lang="uz">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
+<title>Shop</title>
+<link rel="icon" href="/logo">
+<link rel="manifest" href="/manifest.webmanifest">
+<meta name="theme-color" content="#b8913f">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<link rel="apple-touch-icon" href="/logo">
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<style>
+  :root {
+    --bg: var(--tg-theme-bg-color, #ffffff);
+    --bg2: var(--tg-theme-secondary-bg-color, #f3f1ec);
+    --text: var(--tg-theme-text-color, #1d1b16);
+    --hint: var(--tg-theme-hint-color, #8a8478);
+    --link: var(--tg-theme-link-color, #a8822e);
+    --btn: var(--tg-theme-button-color, #b8913f);
+    --btn-text: var(--tg-theme-button-text-color, #ffffff);
+    --gold: #c9a14a;
+    --gold2: #e9cf8a;
+    --danger: #e0533d;
+    --radius: 16px;
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; background: var(--bg2); color: var(--text);
+    font: 15px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+  body { padding-bottom: 24px; }
+  button { font: inherit; color: inherit; border: 0; background: none; cursor: pointer; }
+  input, textarea { font: inherit; color: var(--text); }
+  .hidden { display: none !important; }
+
+  /* Sarlavha */
+  header { position: sticky; top: 0; z-index: 10; background: var(--bg); display: flex; align-items: center;
+    gap: 10px; padding: 12px 16px; box-shadow: 0 1px 0 rgba(0,0,0,.06); }
+  .logo { flex: 1; min-width: 0; font-weight: 700; font-size: 18px; letter-spacing: .3px; display: flex; align-items: center; gap: 8px; }
+  .logo span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .logo img { flex: none; }
+  .logo .gem { width: 30px; height: 30px; border-radius: 10px; display: grid; place-items: center;
+    background: linear-gradient(135deg, var(--gold2), var(--gold)); color: #fff; font-size: 16px; }
+  .icon-btn { position: relative; width: 40px; height: 40px; border-radius: 12px; background: var(--bg2);
+    display: grid; place-items: center; font-size: 18px; }
+  .badge { position: absolute; top: -4px; right: -4px; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px;
+    background: var(--danger); color: #fff; font-size: 11px; font-weight: 700; display: grid; place-items: center; }
+
+  main { padding: 12px 16px; }
+  .promo { border-radius: var(--radius); padding: 16px; margin-bottom: 12px; color: #2b210c;
+    background: linear-gradient(135deg, #f6e3a6 0%, #d9b45e 55%, #b8913f 100%); box-shadow: 0 6px 20px rgba(185,145,63,.25); }
+  .promo h3 { margin: 0 0 4px; font-size: 18px; }
+  .promo .timer { margin-top: 8px; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .search { width: 100%; padding: 12px 14px; border-radius: 12px; border: 0; background: var(--bg); outline: none;
+    margin-bottom: 10px; }
+  .chips { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 6px; margin: 0 -16px 8px; padding-left: 16px;
+    padding-right: 16px; scrollbar-width: none; }
+  .chips::-webkit-scrollbar { display: none; }
+  .chip { flex: none; padding: 8px 14px; border-radius: 20px; background: var(--bg); white-space: nowrap; font-size: 14px; }
+  .chip.active { background: var(--btn); color: var(--btn-text); }
+
+  .grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }
+  @media (min-width: 560px) { .grid { grid-template-columns: repeat(3, 1fr); } }
+  .card { background: var(--bg); border-radius: var(--radius); overflow: hidden; text-align: left; display: flex;
+    flex-direction: column; transition: transform .1s; }
+  .card:active { transform: scale(.98); }
+  .logo img { width: 32px; height: 32px; border-radius: 50%; object-fit: cover; display: block;
+    box-shadow: 0 0 0 1px rgba(127,127,127,.25); }
+  /* Brauzer (PWA) rejimi: pastki asosiy tugma, orqaga tugmasi, kirish ekrani */
+  #webMain { position: fixed; left: 0; right: 0; bottom: 0; z-index: 30; border: 0; padding: 16px 16px calc(16px + env(safe-area-inset-bottom));
+    background: var(--btn); color: var(--btn-text); font-weight: 700; font-size: 16px; box-shadow: 0 -4px 16px rgba(0,0,0,.08); }
+  #webMain[disabled] { opacity: .55; }
+  #webMain.loading { opacity: .8; }
+  body.has-main { padding-bottom: 84px; }
+  body.has-main .screen { padding-bottom: 96px; }
+  #webBack { display: none; }
+  body.web #webBack.on { display: grid; }
+  body.web .screen { top: 64px; }
+  .login { min-height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center;
+    padding: 32px 24px; gap: 14px; }
+  .login img.big-logo { width: 96px; height: 96px; border-radius: 50%; object-fit: cover; box-shadow: 0 8px 24px rgba(0,0,0,.15); }
+  .login h1 { margin: 6px 0 0; font-size: 24px; }
+  .login p { margin: 0; color: var(--hint); max-width: 360px; }
+  .login .note { font-size: 13px; background: var(--bg); padding: 12px; border-radius: 12px; }
+  .thumb img.ph-logo, .placeholder img.ph-logo, .mini img.ph-logo, img.ph-logo { width: 46%; height: 46%;
+    border-radius: 50%; object-fit: cover; opacity: .9; }
+  .card.soldout .thumb img { filter: grayscale(1); opacity: .55; }
+  .tag.sold { left: 50%; top: 50%; transform: translate(-50%, -50%); background: rgba(30,30,30,.82); font-size: 13px;
+    padding: 6px 12px; white-space: nowrap; }
+  .stock { font-size: 12px; font-weight: 600; color: #2e9e5b; }
+  .stock.low { color: #e08a1e; }
+  .stock.out { color: var(--danger); }
+  .warn-box { background: rgba(224,83,61,.1); color: var(--danger); border-radius: 12px; padding: 12px; white-space: pre-wrap;
+    font-size: 14px; }
+  .thumb { position: relative; aspect-ratio: 1; background: linear-gradient(135deg, #f7efdc, #efe2c0);
+    display: grid; place-items: center; font-size: 38px; }
+  .thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .tag { position: absolute; top: 8px; left: 8px; padding: 3px 8px; border-radius: 8px; font-size: 12px; font-weight: 700;
+    background: var(--danger); color: #fff; }
+  .tag.video { left: auto; right: 8px; background: rgba(0,0,0,.6); }
+  .card .info { padding: 10px 12px 12px; display: flex; flex-direction: column; gap: 4px; flex: 1; }
+  .card .name { font-weight: 600; font-size: 14px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+    overflow: hidden; }
+  .price { font-weight: 700; color: var(--text); white-space: nowrap; }
+  .old { color: var(--hint); text-decoration: line-through; font-size: 12px; font-weight: 400; white-space: nowrap; }
+  .card .old { display: block; }
+  .price-line { display: flex; flex-wrap: wrap; align-items: baseline; column-gap: 8px; row-gap: 4px; }
+  .nowrap { white-space: nowrap; }
+  .empty { text-align: center; color: var(--hint); padding: 48px 16px; }
+  .empty .big { font-size: 48px; margin-bottom: 8px; }
+
+  /* Ekranlar (mahsulot, savat, buyurtma) */
+  .screen { position: fixed; inset: 0; z-index: 20; background: var(--bg2); overflow-y: auto; padding-bottom: 32px;
+    animation: slide .18s ease-out; }
+  @keyframes slide { from { transform: translateY(16px); opacity: .4; } to { transform: none; opacity: 1; } }
+  .media { position: relative; background: #000; aspect-ratio: 1; }
+  .media img, .media video { width: 100%; height: 100%; object-fit: contain; display: block; background: #000; }
+  .media .placeholder { width: 100%; height: 100%; display: grid; place-items: center; font-size: 80px;
+    background: linear-gradient(135deg, #f7efdc, #efe2c0); }
+  .slider { display: flex; width: 100%; height: 100%; overflow-x: auto; scroll-snap-type: x mandatory;
+    scrollbar-width: none; }
+  .slider::-webkit-scrollbar { display: none; }
+  .slide { flex: 0 0 100%; height: 100%; scroll-snap-align: center; position: relative; }
+  .dots { position: absolute; bottom: 12px; left: 0; right: 0; display: flex; justify-content: center; gap: 6px; pointer-events: none; }
+  .dots i { width: 7px; height: 7px; border-radius: 50%; background: rgba(255,255,255,.5); transition: .2s; }
+  .dots i.active { width: 18px; border-radius: 4px; background: #fff; }
+  .dots i.vid { background: rgba(255,255,255,.5); }
+  .counter { position: absolute; top: 12px; right: 12px; padding: 3px 9px; border-radius: 10px; background: rgba(0,0,0,.55);
+    color: #fff; font-size: 12px; font-weight: 600; }
+  .tabs { position: absolute; bottom: 12px; left: 50%; transform: translateX(-50%); display: flex; gap: 6px;
+    background: rgba(0,0,0,.45); border-radius: 20px; padding: 4px; }
+  .tabs button { color: #fff; padding: 6px 14px; border-radius: 16px; font-size: 13px; font-weight: 600; }
+  .tabs button.active { background: #fff; color: #000; }
+  .panel { background: var(--bg); border-radius: var(--radius); padding: 16px; margin: 12px 16px; }
+  .panel h2 { margin: 0 0 6px; font-size: 20px; }
+  .panel h4 { margin: 0 0 10px; font-size: 14px; color: var(--hint); font-weight: 600; text-transform: uppercase; letter-spacing: .4px; }
+  .big-price { font-size: 22px; font-weight: 800; }
+  .discount-pill { display: inline-block; margin-left: 8px; padding: 2px 8px; border-radius: 8px; background: var(--danger);
+    color: #fff; font-size: 13px; font-weight: 700; vertical-align: middle; }
+  .ends { color: var(--danger); font-size: 13px; margin-top: 6px; font-weight: 600; }
+  .sizes { display: flex; flex-wrap: wrap; gap: 8px; }
+  .size { min-width: 52px; padding: 10px 12px; border-radius: 12px; background: var(--bg2); font-weight: 600; text-align: center; }
+  .size.active { background: var(--btn); color: var(--btn-text); }
+  .size.shake, .swatch.shake { animation: shake .3s; }
+  .swatches { display: flex; flex-wrap: wrap; gap: 10px; }
+  .swatch { display: flex; align-items: center; gap: 8px; padding: 8px 12px 8px 8px; border-radius: 22px; background: var(--bg2);
+    border: 2px solid transparent; font-weight: 600; font-size: 14px; }
+  .swatch .dot { width: 24px; height: 24px; border-radius: 50%; flex: none; box-shadow: inset 0 0 0 1px rgba(0,0,0,.15); }
+  .swatch.active { border-color: var(--btn); }
+  .swatch-dots { position: absolute; bottom: 8px; left: 8px; display: flex; gap: 3px; }
+  .swatch-dots i { width: 12px; height: 12px; border-radius: 50%; box-shadow: 0 0 0 1.5px #fff; }
+  @keyframes shake { 25% { transform: translateX(-4px); } 75% { transform: translateX(4px); } }
+  .stepper { display: inline-flex; align-items: center; background: var(--bg2); border-radius: 12px; }
+  .stepper button { width: 40px; height: 40px; font-size: 20px; font-weight: 600; }
+  .stepper span { min-width: 32px; text-align: center; font-weight: 700; }
+  .desc { white-space: pre-wrap; }
+
+  .line { display: flex; gap: 12px; align-items: center; padding: 10px 0; border-bottom: 1px solid rgba(127,127,127,.12); }
+  .line:last-child { border-bottom: 0; }
+  .line .mini { width: 64px; height: 64px; border-radius: 12px; overflow: hidden; flex: none;
+    background: linear-gradient(135deg, #f7efdc, #efe2c0); display: grid; place-items: center; font-size: 24px; }
+  .line .mini img { width: 100%; height: 100%; object-fit: cover; }
+  .line .grow { flex: 1; min-width: 0; }
+  .line .title { font-weight: 600; font-size: 14px; }
+  .line .sub { color: var(--hint); font-size: 13px; }
+  .row { display: flex; justify-content: space-between; gap: 12px; padding: 4px 0; }
+  .row span:last-child { white-space: nowrap; }
+  .row.total { font-size: 18px; font-weight: 800; padding-top: 10px; }
+  .row.green { color: #2e9e5b; }
+  .bonus-box { display: flex; align-items: center; gap: 12px; padding: 12px; border-radius: 12px; margin-top: 10px;
+    background: linear-gradient(135deg, rgba(233,207,138,.35), rgba(201,161,74,.25)); }
+  .switch { position: relative; width: 48px; height: 28px; flex: none; }
+  .switch input { opacity: 0; width: 0; height: 0; }
+  .switch span { position: absolute; inset: 0; border-radius: 14px; background: rgba(127,127,127,.35); transition: .2s; }
+  .switch span:before { content: ""; position: absolute; width: 22px; height: 22px; left: 3px; top: 3px; border-radius: 50%;
+    background: #fff; transition: .2s; }
+  .switch input:checked + span { background: var(--gold); }
+  .switch input:checked + span:before { transform: translateX(20px); }
+  label.field { display: block; margin-bottom: 12px; }
+  label.field span { display: block; font-size: 13px; color: var(--hint); margin-bottom: 4px; }
+  label.field input, label.field textarea { width: 100%; padding: 12px; border-radius: 12px; border: 1px solid transparent;
+    background: var(--bg2); outline: none; resize: none; }
+  label.field.error input, label.field.error textarea { border-color: var(--danger); }
+  .success { text-align: center; padding: 48px 24px; }
+  .success .check { width: 88px; height: 88px; border-radius: 50%; margin: 0 auto 16px; display: grid; place-items: center;
+    font-size: 44px; color: #fff; background: linear-gradient(135deg, var(--gold2), var(--gold)); }
+  .btn { display: block; width: 100%; padding: 14px; border-radius: 12px; background: var(--btn); color: var(--btn-text);
+    font-weight: 700; margin-top: 10px; }
+  .btn.secondary { background: var(--bg); color: var(--link); }
+  .toast { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); z-index: 50; background: rgba(20,20,20,.88);
+    color: #fff; padding: 10px 16px; border-radius: 12px; font-size: 14px; max-width: 90%; text-align: center; }
+  .sheet-bg { position: fixed; inset: 0; z-index: 40; background: rgba(0,0,0,.4); display: flex; align-items: flex-end; }
+  .sheet { width: 100%; background: var(--bg); border-radius: 20px 20px 0 0; padding: 16px 16px 28px; }
+  .sheet button { display: block; width: 100%; text-align: left; padding: 14px; border-radius: 12px; font-size: 16px; }
+  .sheet button.active { background: var(--bg2); font-weight: 700; }
+  .skeleton { height: 220px; border-radius: var(--radius); background: linear-gradient(90deg, var(--bg) 25%, var(--bg2) 50%, var(--bg) 75%);
+    background-size: 200% 100%; animation: sk 1.2s infinite; }
+  @keyframes sk { to { background-position: -200% 0; } }
+</style>
+</head>
+<body>
+<header id="header" class="hidden">
+  <button class="icon-btn" id="webBack" aria-label="Back">←</button>
+  <div class="logo"><img id="logoImg" src="/logo" alt="" onerror="this.replaceWith(Object.assign(document.createElement('div'), {className: 'gem', textContent: '💎'}))"><span id="shopName"></span></div>
+  <button class="icon-btn" id="bonusBtn" title="💎">💎<span class="badge hidden" id="bonusBadge"></span></button>
+  <button class="icon-btn hidden" id="installBtn" aria-label="Install">📲</button>
+  <button class="icon-btn" id="langBtn">🌐</button>
+  <button class="icon-btn" id="cartBtn">🛒<span class="badge hidden" id="cartBadge"></span></button>
+</header>
+
+<main id="home">
+  <div class="grid"><div class="skeleton"></div><div class="skeleton"></div><div class="skeleton"></div><div class="skeleton"></div></div>
+</main>
+
+<div id="screens"></div>
+
+<script>
+// Telegram ichida (Mini App) — Telegram'ning tugmalari; brauzerda (PWA) — sahifaning o'z tugmalari
+const tgReal = window.Telegram && window.Telegram.WebApp;
+const IN_TG = !!(tgReal && tgReal.initData);
+const tg = IN_TG ? tgReal : makeWebShim();
+function makeWebShim() {
+  let mainHandler = null, backHandler = null, mainText = "";
+  const main = document.createElement("button"); main.id = "webMain"; main.style.display = "none";
+  main.onclick = () => !main.disabled && mainHandler && mainHandler();
+  document.addEventListener("DOMContentLoaded", () => {
+    document.body.appendChild(main); document.body.classList.add("web");
+    document.getElementById("webBack").onclick = () => backHandler && backHandler();
+  });
+  return {
+    initData: "", ready() {}, expand() {}, setHeaderColor() {},
+    close() { window.open(`https://t.me/${S.data?.shop.bot || ""}`, "_blank"); },
+    showAlert(msg) { alert(msg); },
+    HapticFeedback: { impactOccurred() { navigator.vibrate?.(8); }, notificationOccurred(k) { navigator.vibrate?.(k === "error" ? [30, 40, 30] : 15); } },
+    MainButton: {
+      setText(t) { mainText = t; if (!main.classList.contains("loading")) main.textContent = t; },
+      show() { main.style.display = "block"; document.body.classList.add("has-main"); },
+      hide() { main.style.display = "none"; document.body.classList.remove("has-main"); },
+      onClick(h) { mainHandler = h; }, enable() { main.disabled = false; }, disable() { main.disabled = true; },
+      showProgress() { main.classList.add("loading"); main.textContent = "⏳"; },
+      hideProgress() { main.classList.remove("loading"); main.textContent = mainText; },
+    },
+    BackButton: {
+      show() { document.getElementById("webBack")?.classList.add("on"); },
+      hide() { document.getElementById("webBack")?.classList.remove("on"); },
+      onClick(h) { backHandler = h; },
+    },
+  };
+}
+const S = { data: null, cat: 0, query: "", stack: [], useBonus: false, product: null, size: "", color: "", qty: 1, cart: null };
+const dotStyle = (c) => c.hex ? `background:${c.hex}` : "background:conic-gradient(#e57373,#ffd54f,#81c784,#64b5f6,#ba68c8,#e57373)";
+const $ = (sel, root = document) => root.querySelector(sel);
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const T = (k, vars = {}) => (S.data?.texts[k] || k).replace(/\{(\w+)\}/g, (_, v) => vars[v] ?? "");
+const money = (n) => String(Math.round(n)).replace(/\B(?=(\d{3})+(?!\d))/g, " ") + " " + (S.data?.shop.currency || "so'm");
+
+function toast(text) {
+  const el = document.createElement("div");
+  el.className = "toast"; el.textContent = text; document.body.appendChild(el);
+  setTimeout(() => el.remove(), 2200);
+}
+function haptic(kind = "light") {
+  try { kind === "success" || kind === "error" ? tg.HapticFeedback.notificationOccurred(kind) : tg.HapticFeedback.impactOccurred(kind); } catch (e) {}
+}
+
+async function api(path, body) {
+  const res = await fetch(path, {
+    method: body === undefined ? "GET" : "POST",
+    headers: IN_TG ? { "Content-Type": "application/json", "X-Init-Data": tg.initData } : { "Content-Type": "application/json" },
+    credentials: "same-origin",
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok) { const err = new Error(json.error || "error"); err.status = res.status; err.data = json; throw err; }
+  return json;
+}
+
+// ---------------- Vaqt (aksiya taymeri) ----------------
+function duration(ms) {
+  const s = Math.max(Math.floor(ms / 1000), 0), d = Math.floor(s / 86400), h = Math.floor((s % 86400) / 3600),
+    m = Math.floor((s % 3600) / 60), sec = s % 60;
+  const pad = (x) => String(x).padStart(2, "0");
+  return (d ? `${d} ${T("dur_d")} ` : "") + `${pad(h)}:${pad(m)}:${pad(sec)}`;
+}
+let clockOffset = 0;
+function promoTimerText() {
+  const p = S.data.promo; if (!p) return "";
+  const nowMs = Date.now() + clockOffset;
+  return p.running ? T("promo_ends_in", { left: duration(Date.parse(p.end) - nowMs) })
+                   : T("promo_starts_in", { left: duration(Date.parse(p.start) - nowMs) });
+}
+setInterval(() => document.querySelectorAll("[data-timer]").forEach((el) => (el.textContent = promoTimerText())), 1000);
+
+// ---------------- Bosh sahifa ----------------
+// Rasmi yo'q mahsulotlarda bot logotipi ko'rinadi (u ham bo'lmasa — 💎)
+const logoPh = () => `<img class="ph-logo" src="/logo" alt="" onerror="this.replaceWith('💎')">`;
+const soldOut = (p) => p.stock === 0;
+function stockHtml(p, short = false) {
+  if (p.stock === null || p.stock === undefined) return "";
+  if (p.stock === 0) return `<div class="stock out">${esc(T("out_of_stock"))}</div>`;
+  if (p.stock < 3) return `<div class="stock low">${esc(T("low_stock", { n: p.stock }))}</div>`;
+  return short ? "" : `<div class="stock">${esc(T("in_stock", { n: p.stock }))}</div>`;
+}
+function stockIssuesText(issues) {
+  return T("stock_changed", { items: issues.map((i) => T("stock_left_item", { name: i.name, n: i.available })).join("\n") });
+}
+
+function productCard(p) {
+  const img = p.photo ? `<img loading="lazy" src="${p.photo}" alt="">` : (p.video ? "🎬" : logoPh());
+  return `<button class="card ${soldOut(p) ? "soldout" : ""}" data-id="${p.id}">
+    <div class="thumb">${img}${p.percent ? `<span class="tag">-${p.percent}%</span>` : ""}${p.video ? `<span class="tag video">▶ ${esc(T("video"))}</span>`
+      : p.photos.length > 1 ? `<span class="tag video">🖼 ${p.photos.length}</span>` : ""}
+      ${soldOut(p) ? `<span class="tag sold">${esc(T("btn_out_of_stock"))}</span>` : ""}
+      ${p.colors.length ? `<span class="swatch-dots">${p.colors.slice(0, 5).map((c) => `<i style="${dotStyle(c)}"></i>`).join("")}</span>` : ""}</div>
+    <div class="info"><div class="name">${esc(p.name)}</div>
+      <div><div class="price">${money(p.price)}</div>${p.old_price ? `<div class="old">${money(p.old_price)}</div>` : ""}${stockHtml(p, true)}</div></div>
+  </button>`;
+}
+
+function renderHome() {
+  const d = S.data;
+  const q = S.query.trim().toLowerCase();
+  const list = d.products.filter((p) => (!S.cat || p.category_id === S.cat) &&
+    (!q || p.name.toLowerCase().includes(q) || p.description.toLowerCase().includes(q)));
+  const promo = d.promo ? `<div class="promo"><h3>${esc(d.promo.title)}</h3><div>${d.promo.scope_html}</div>
+      <div class="timer" data-timer>${esc(promoTimerText())}</div></div>` : "";
+  $("#home").innerHTML = `${promo}
+    <input class="search" id="search" type="search" placeholder="${esc(T("search"))}" value="${esc(S.query)}">
+    <div class="chips">${[{ id: 0, name: T("all") }, ...d.categories].map((c) =>
+      `<button class="chip ${S.cat === c.id ? "active" : ""}" data-cat="${c.id}">${esc(c.name)}</button>`).join("")}</div>
+    ${list.length ? `<div class="grid">${list.map(productCard).join("")}</div>`
+                  : `<div class="empty"><div class="big">💎</div>${esc(T("nothing_found"))}</div>`}`;
+  $("#search").addEventListener("input", (e) => {
+    S.query = e.target.value; const pos = e.target.selectionStart; renderHome();
+    const s = $("#search"); s.focus(); s.setSelectionRange(pos, pos);
+  });
+  document.querySelectorAll("[data-cat]").forEach((b) => b.onclick = () => { S.cat = +b.dataset.cat; haptic(); renderHome(); });
+  document.querySelectorAll(".card").forEach((b) => b.onclick = () => openProduct(+b.dataset.id));
+  updateBadges();
+}
+
+function updateBadges() {
+  const count = (S.cart?.items || []).reduce((a, i) => a + i.qty, 0);
+  $("#cartBadge").textContent = count; $("#cartBadge").classList.toggle("hidden", !count);
+  const bal = S.data.bonus.balance;
+  $("#bonusBadge").textContent = bal; $("#bonusBadge").classList.toggle("hidden", !bal);
+}
+
+// ---------------- Ekranlar navigatsiyasi ----------------
+function pushScreen(name, html) {
+  const el = document.createElement("div");
+  el.className = "screen"; el.dataset.name = name; el.innerHTML = html;
+  $("#screens").appendChild(el); S.stack.push(name); syncButtons();
+  return el;
+}
+function popScreen() {
+  const screens = $("#screens").children;
+  if (!screens.length) return;
+  const last = screens[screens.length - 1];
+  last.querySelectorAll("video").forEach((v) => v.pause());
+  last.remove(); S.stack.pop(); syncButtons();
+  if (!S.stack.length) renderHome();
+}
+function current() { return S.stack[S.stack.length - 1] || "home"; }
+
+function syncButtons() {
+  const top = current();
+  if (S.stack.length) tg.BackButton.show(); else tg.BackButton.hide();
+  const mb = tg.MainButton;
+  mb.enable();
+  if (top === "product") {
+    const p = S.product;
+    if (soldOut(p)) { mb.setText(T("btn_out_of_stock")); mb.disable(); mb.show(); }
+    else { mb.setText(`${T("add_to_cart")} · ${money(p.price * S.qty)}`); mb.show(); }
+  } else if (top === "cart" && S.cart?.items.length) {
+    mb.setText(`${T("checkout")} · ${money(S.cart.total)}`); mb.show();
+  } else if (top === "checkout") {
+    mb.setText(`${T("place_order")} · ${money(S.cart.total)}`); mb.show();
+  } else if (top === "home" && S.cart?.items.length) {
+    mb.setText(`🛒 ${T("cart")} · ${money(S.cart.total)}`); mb.show();
+  } else mb.hide();
+}
+
+async function onMainButton() {
+  const top = current();
+  if (top === "product") return addToCart();
+  if (top === "cart") return openCheckout();
+  if (top === "checkout") return placeOrder();
+  if (top === "home") return openCart();
+}
+
+// ---------------- Mahsulot ----------------
+function openProduct(id) {
+  const p = S.data.products.find((x) => x.id === id); if (!p) return;
+  S.product = p; S.size = ""; S.color = p.colors.length === 1 ? p.colors[0].key : ""; S.qty = 1; haptic();
+  // Galereya: barcha rasmlar + video (oxirgi slayd), barmoq bilan suriladi
+  const slides = [...p.photos.map((src) => `<div class="slide"><img src="${src}" alt="" loading="lazy"></div>`),
+    ...(p.video ? [`<div class="slide"><video src="${p.video}" controls playsinline loop preload="metadata"></video></div>`] : [])];
+  const total = slides.length;
+  const media = total ? `<div class="slider" id="slider">${slides.join("")}</div>${total > 1 ? `
+      <div class="counter" id="counter">1/${total}</div>
+      <div class="dots">${slides.map((_, i) => `<i class="${i === 0 ? "active" : ""}"></i>`).join("")}</div>` : ""}`
+    : `<div class="placeholder">${logoPh()}</div>`;
+  const tabs = "";
+  const el = pushScreen("product", `
+    <div class="media" id="media">${media}${tabs}</div>
+    <div class="panel">
+      <h2>${esc(p.name)}</h2>
+      <div class="price-line"><span class="big-price nowrap">${money(p.price)}</span>${p.old_price ? `<span class="old" style="font-size:15px">${money(p.old_price)}</span><span class="discount-pill" style="margin:0">-${p.percent}%</span>` : ""}</div>
+      ${p.percent && S.data.promo ? `<div class="ends" data-timer>${esc(promoTimerText())}</div>` : ""}
+      ${stockHtml(p) ? `<div style="margin-top:8px">${stockHtml(p)}</div>` : ""}
+    </div>
+    ${p.colors.length ? `<div class="panel"><h4>${esc(T("color"))}</h4><div class="swatches">${p.colors.map((c) =>
+      `<button class="swatch ${S.color === c.key ? "active" : ""}" data-color="${esc(c.key)}"><span class="dot" style="${dotStyle(c)}"></span>${esc(c.name)}</button>`).join("")}</div></div>` : ""}
+    ${p.sizes.length ? `<div class="panel"><h4>${esc(T("size"))}</h4><div class="sizes">${p.sizes.map((s) =>
+      `<button class="size" data-size="${esc(s)}">${esc(s)}</button>`).join("")}</div></div>` : ""}
+    <div class="panel" style="display:${soldOut(p) ? "none" : "flex"};align-items:center;justify-content:space-between">
+      <h4 style="margin:0">${esc(T("quantity"))}</h4>
+      <div class="stepper"><button data-q="-1">−</button><span id="qty">1</span><button data-q="1">+</button></div>
+    </div>
+    ${p.description ? `<div class="panel"><h4>${esc(T("description"))}</h4><div class="desc">${esc(p.description)}</div></div>` : ""}`);
+  const slider = $("#slider", el);
+  if (slider && total > 1) {
+    let last = 0;
+    slider.addEventListener("scroll", () => {
+      const i = Math.round(slider.scrollLeft / slider.clientWidth);
+      if (i === last) return;
+      last = i; haptic();
+      el.querySelectorAll(".dots i").forEach((d, n) => d.classList.toggle("active", n === i));
+      $("#counter", el).textContent = `${i + 1}/${total}`;
+      el.querySelectorAll("video").forEach((v) => v.pause());
+    }, { passive: true });
+  }
+  el.querySelectorAll("[data-color]").forEach((b) => b.onclick = () => {
+    S.color = b.dataset.color; haptic();
+    el.querySelectorAll("[data-color]").forEach((x) => x.classList.toggle("active", x === b));
+  });
+  el.querySelectorAll("[data-size]").forEach((b) => b.onclick = () => {
+    S.size = b.dataset.size; haptic();
+    el.querySelectorAll("[data-size]").forEach((x) => x.classList.toggle("active", x === b));
+  });
+  el.querySelectorAll("[data-q]").forEach((b) => b.onclick = () => {
+    const max = p.stock === null || p.stock === undefined ? 99 : Math.max(1, p.stock);
+    const next = S.qty + +b.dataset.q;
+    if (next > max) { haptic("error"); toast(T("stock_limit", { n: p.stock, c: cartQty(p.id) })); return; }
+    S.qty = Math.min(max, Math.max(1, next)); $("#qty", el).textContent = S.qty; haptic(); syncButtons();
+  });
+}
+
+async function addToCart() {
+  const p = S.product;
+  if (p.colors.length && !S.color) {
+    haptic("error"); toast(T("choose_color_first"));
+    document.querySelectorAll(".swatch").forEach((x) => { x.classList.remove("shake"); void x.offsetWidth; x.classList.add("shake"); });
+    return;
+  }
+  if (p.sizes.length && !S.size) {
+    haptic("error"); toast(T("choose_size_first"));
+    document.querySelectorAll(".size").forEach((x) => { x.classList.remove("shake"); void x.offsetWidth; x.classList.add("shake"); });
+    return;
+  }
+  if (soldOut(p)) { haptic("error"); toast(T("out_of_stock")); return; }
+  if (p.stock !== null && p.stock !== undefined && cartQty(p.id) + S.qty > p.stock) {
+    haptic("error"); toast(T("stock_limit", { n: p.stock, c: cartQty(p.id) })); return;
+  }
+  const color = p.colors.length ? S.color : "";
+  const existing = S.cart.items.find((i) => i.product_id === p.id && i.size === (p.sizes.length ? S.size : "") && i.color === color);
+  tg.MainButton.showProgress();
+  try {
+    S.cart = await api("/api/cart", { product_id: p.id, size: S.size, color, qty: (existing?.qty || 0) + S.qty });
+    haptic("success"); toast(T("added")); popScreen();
+  } catch (e) {
+    haptic("error");
+    toast(e.data?.error === "out_of_stock" ? T("stock_limit", { n: e.data.available, c: e.data.in_cart }) : T("error"));
+  }
+  finally { tg.MainButton.hideProgress(); syncButtons(); }
+}
+
+// ---------------- Savat ----------------
+const cartQty = (pid) => (S.cart?.items || []).filter((i) => i.product_id === pid).reduce((a, i) => a + i.qty, 0);
+function cartSummary(c) {
+  return `<div class="row"><span>${esc(T("subtotal"))}</span><span>${money(c.subtotal + c.promo_discount)}</span></div>
+    ${c.promo_discount ? `<div class="row green"><span>${esc(T("discount"))}</span><span>−${money(c.promo_discount)}</span></div>` : ""}
+    ${c.bonus_used ? `<div class="row green"><span>${esc(T("bonus_discount_line", { n: c.bonus_used }))}</span><span>−${money(c.bonus_discount)}</span></div>` : ""}
+    <div class="row total"><span>${esc(T("to_pay").replace(/^\S+\s/, ""))}</span><span>${money(c.total)}</span></div>
+    ${c.bonus_earned ? `<div class="sub" style="margin-top:6px">${T("bonus_will_earn", { n: c.bonus_earned })}</div>` : ""}`;
+}
+
+function cartHtml() {
+  const c = S.cart;
+  if (!c.items.length) return `<div class="empty"><div class="big">🛒</div>${esc(T("cart_empty"))}
+    <button class="btn secondary" id="toShop" style="max-width:260px;margin:16px auto 0">${esc(T("continue_shopping"))}</button></div>`;
+  const photo = (id) => S.data.products.find((p) => p.id === id)?.photo;
+  return `<div class="panel"><h4>${esc(T("cart"))}</h4>${c.items.map((i, n) => `
+      <div class="line"><div class="mini">${photo(i.product_id) ? `<img src="${photo(i.product_id)}" alt="">` : logoPh()}</div>
+        <div class="grow"><div class="title">${esc(i.name)}</div>
+          ${i.color ? `<div class="sub">${esc(T("color"))}: ${esc(i.color_name)}</div>` : ""}
+          ${i.size ? `<div class="sub">${esc(T("size"))}: ${esc(i.size)}</div>` : ""}
+          <div class="sub"><span class="nowrap">${money(i.price)}</span>${i.old_price ? ` <s class="nowrap">${money(i.old_price)}</s>` : ""}</div></div>
+        <div class="stepper"><button data-idx="${n}" data-d="-1">−</button><span>${i.qty}</span>
+          <button data-idx="${n}" data-d="1">+</button></div></div>`).join("")}</div>
+    ${c.max_usable ? `<div class="panel"><div class="bonus-box"><div style="font-size:26px">💎</div>
+        <div class="grow"><b>${esc(T("your_bonus"))}: ${c.balance}</b><div class="sub">${esc(T("use_bonus", { n: c.max_usable, value: money(c.max_usable * S.data.bonus.value) }))}</div></div>
+        <label class="switch"><input type="checkbox" id="useBonus" ${S.useBonus ? "checked" : ""}><span></span></label></div></div>` : ""}
+    ${c.stock_issues?.length ? `<div class="panel"><div class="warn-box">${esc(stockIssuesText(c.stock_issues))}</div></div>` : ""}
+    <div class="panel">${cartSummary(c)}</div>`;
+}
+
+function bindCart(el) {
+  el.querySelectorAll("[data-idx]").forEach((b) => b.onclick = async () => {
+    const item = S.cart.items[+b.dataset.idx];
+    haptic();
+    try { S.cart = await api("/api/cart", { product_id: item.product_id, size: item.size, color: item.color, qty: item.qty + +b.dataset.d, use_bonus: S.useBonus }); }
+    catch (e) {
+      haptic("error");
+      toast(e.data?.error === "out_of_stock" ? T("stock_limit", { n: e.data.available, c: e.data.in_cart }) : T("error"));
+    }
+    refreshCart(el);
+  });
+  const ub = $("#useBonus", el);
+  if (ub) ub.onchange = async () => { S.useBonus = ub.checked; haptic(); await reloadCart(); refreshCart(el); };
+  const back = $("#toShop", el); if (back) back.onclick = () => { while (S.stack.length) popScreen(); };
+}
+function refreshCart(el) { el.innerHTML = cartHtml(); bindCart(el); syncButtons(); updateBadges(); }
+async function reloadCart() { S.cart = await api(`/api/cart?use_bonus=${S.useBonus ? 1 : 0}`); }
+
+async function openCart() {
+  haptic();
+  try { await reloadCart(); } catch (e) {}
+  const el = pushScreen("cart", ""); refreshCart(el);
+}
+
+// ---------------- Rasmiylashtirish ----------------
+function openCheckout() {
+  if (S.cart.stock_issues?.length) { haptic("error"); tg.showAlert(stockIssuesText(S.cart.stock_issues)); return; }
+  const c = S.data.contact; haptic();
+  pushScreen("checkout", `<div class="panel">
+      <label class="field" id="f_full_name"><span>${esc(T("name"))}</span><input id="full_name" value="${esc(c.full_name)}" maxlength="64" autocomplete="name"></label>
+      <label class="field" id="f_phone"><span>${esc(T("phone"))}</span><input id="phone" type="tel" value="${esc(c.phone)}" placeholder="+998 90 123 45 67" autocomplete="tel"></label>
+      <label class="field" id="f_address"><span>${esc(T("address"))}</span><textarea id="address" rows="2" maxlength="300">${esc(c.address)}</textarea></label>
+      <label class="field"><span>${esc(T("comment"))}</span><textarea id="comment" rows="2" maxlength="500" placeholder="${esc(T("comment_ph"))}"></textarea></label>
+    </div><div class="panel" id="checkoutSummary">${cartSummary(S.cart)}</div>`);
+  document.querySelectorAll(".field input, .field textarea").forEach((inp) =>
+    inp.addEventListener("input", () => inp.closest(".field").classList.remove("error")));
+}
+
+async function placeOrder() {
+  const v = (id) => $("#" + id).value.trim();
+  const body = { full_name: v("full_name"), phone: v("phone"), address: v("address"), comment: v("comment"),
+                 use_bonus: S.useBonus, expected_total: S.cart.total };
+  document.querySelectorAll(".field").forEach((f) => f.classList.remove("error"));
+  tg.MainButton.showProgress();
+  try {
+    const res = await api("/api/order", body);
+    haptic("success");
+    S.data.contact = { full_name: body.full_name, phone: body.phone, address: body.address };
+    S.cart = { ...S.cart, items: [], total: 0, subtotal: 0 };
+    try { const b = await api("/api/bootstrap"); S.data.bonus = b.bonus; S.cart = b.cart; S.data.products = b.products; } catch (e) {}
+    document.querySelectorAll(".toast").forEach((t) => t.remove());
+    while (S.stack.length) { $("#screens").lastElementChild.remove(); S.stack.pop(); }
+    renderHome();
+    const el = pushScreen("success", `<div class="success"><div class="check">✓</div>
+      <h2>${esc(T("order_done"))}</h2><p>${esc(T(IN_TG || res.notified ? "order_done_text" : "order_done_text_web", { id: res.order_id }))}</p>
+      <button class="btn" id="goChat">${esc(T(IN_TG ? "go_chat" : "open_telegram"))}</button>
+      <button class="btn secondary" id="goShop">${esc(T("continue_shopping"))}</button></div>`);
+    $("#goChat", el).onclick = () => tg.close();
+    $("#goShop", el).onclick = () => popScreen();
+  } catch (e) {
+    haptic("error");
+    if (e.data?.error === "validation") {
+      e.data.fields.forEach((f) => $("#f_" + f)?.classList.add("error"));
+      toast(T("fill_required"));
+    } else if (e.data?.error === "out_of_stock") {
+      S.cart = e.data.cart;
+      tg.showAlert(stockIssuesText(e.data.items));
+      popScreen();  // savatga qaytamiz — u yerda nima o'zgargani ko'rinadi
+      const cartEl = $("#screens").lastElementChild; if (cartEl) refreshCart(cartEl);
+      try { const b = await api("/api/bootstrap"); S.data.products = b.products; } catch (err) {}
+    } else if (e.data?.error === "prices_changed") {
+      S.cart = e.data.cart; $("#checkoutSummary").innerHTML = cartSummary(S.cart);
+      tg.showAlert(T("prices_changed"));
+    } else toast(T("error"));
+  } finally { tg.MainButton.hideProgress(); syncButtons(); }
+}
+
+// ---------------- Til va brilliant ----------------
+function openLangSheet() {
+  const bg = document.createElement("div"); bg.className = "sheet-bg";
+  bg.innerHTML = `<div class="sheet"><h4 style="margin:4px 8px 10px">${esc(T("language"))}</h4>${Object.entries(S.data.langs).map(([code, name]) =>
+    `<button data-lang="${code}" class="${code === S.data.lang ? "active" : ""}">${esc(name)}</button>`).join("")}
+    ${IN_TG ? "" : `<hr style="border:0;border-top:1px solid rgba(127,127,127,.2);margin:8px 0"><button id="logoutBtn">${esc(T("logout"))}</button>`}</div>`;
+  bg.onclick = (e) => { if (e.target === bg) bg.remove(); };
+  const lo = bg.querySelector("#logoutBtn");
+  if (lo) lo.onclick = async () => { await fetch("/api/auth/logout", { method: "POST", credentials: "same-origin" }); location.reload(); };
+  bg.querySelectorAll("[data-lang]").forEach((b) => b.onclick = async () => {
+    bg.remove(); haptic();
+    await api("/api/lang", { lang: b.dataset.lang }).catch(() => {});
+    await boot();
+  });
+  document.body.appendChild(bg);
+}
+
+// ---------------- Ishga tushirish ----------------
+async function boot() {
+  const d = await api("/api/bootstrap");
+  S.data = d; S.cart = d.cart; clockOffset = Date.parse(d.now) - Date.now();
+  document.documentElement.lang = d.lang;
+  document.title = d.shop.name;
+  $("#shopName").textContent = d.shop.name;
+  $("#header").classList.remove("hidden");
+  renderHome(); syncButtons();
+  const hash = new URLSearchParams(location.hash.slice(1));
+  if (hash.get("p") && !S.stack.length) openProduct(+hash.get("p"));
+}
+
+// ---------------- Brauzer (PWA) rejimi: kirish va o'rnatish ----------------
+const LOGIN_TEXTS = {
+  uz: { title: "Xush kelibsiz!", text: "Davom etish uchun Telegram orqali kiring. Savatingiz, buyurtmalaringiz va brilliantlaringiz bot bilan bir xil bo'ladi.",
+        note: "Kirishda «bot menga xabar yuborishi mumkin» ga ruxsat bering — buyurtma va to'lov xabarlari Telegram'ga keladi.", error: "Kirib bo'lmadi. Qaytadan urinib ko'ring." },
+  ru: { title: "Добро пожаловать!", text: "Чтобы продолжить, войдите через Telegram. Корзина, заказы и бриллианты будут общими с ботом.",
+        note: "При входе разрешите боту писать вам — сообщения о заказе и оплате придут в Telegram.", error: "Не удалось войти. Попробуйте ещё раз." },
+  tg: { title: "Хуш омадед!", text: "Барои идома тавассути Telegram ворид шавед. Сабад, фармоишҳо ва бриллиантҳо бо бот якхела мешаванд.",
+        note: "Ҳангоми ворид шудан ба бот иҷозати навиштан диҳед — паёмҳои фармоиш ва пардохт ба Telegram меоянд.", error: "Ворид шудан нашуд. Боз кӯшиш кунед." },
+  kk: { title: "Қош келдіңіз!", text: "Жалғастыру үшін Telegram арқылы кіріңіз. Себет, тапсырыстар және бриллианттар ботпен ортақ болады.",
+        note: "Кіргенде ботқа сізге жазуға рұқсат беріңіз — тапсырыс пен төлем хабарлары Telegram-ға келеді.", error: "Кіру мүмкін болмады. Қайта көріңіз." },
+};
+function browserLang() {
+  const code = (navigator.language || "uz").slice(0, 2).toLowerCase();
+  return LOGIN_TEXTS[code] ? code : "uz";
+}
+
+async function showLogin() {
+  const L = LOGIN_TEXTS[browserLang()];
+  let cfg = { bot: "", shop: "" };
+  try { cfg = await (await fetch("/api/auth/config")).json(); } catch (e) {}
+  $("#header").classList.add("hidden"); $("#home").innerHTML = ""; tg.MainButton.hide();
+  const box = document.createElement("div"); box.className = "login"; box.id = "loginBox";
+  box.innerHTML = `<img class="big-logo" src="/logo" alt="" onerror="this.style.display='none'">
+    <h1>${esc(cfg.shop)}</h1><h2 style="margin:0;font-size:18px">${esc(L.title)}</h2><p>${esc(L.text)}</p>
+    <div id="tgLogin" style="min-height:48px"></div><p class="note">${esc(L.note)}</p>`;
+  document.body.appendChild(box);
+  window.onTelegramAuth = async (user) => {
+    const res = await fetch("/api/auth/telegram", { method: "POST", credentials: "same-origin",
+      headers: { "Content-Type": "application/json" }, body: JSON.stringify(user) });
+    if (!res.ok) { toast(L.error); return; }
+    box.remove(); startApp();
+  };
+  const sc = document.createElement("script");
+  sc.async = true; sc.src = "https://telegram.org/js/telegram-widget.js?22";
+  sc.setAttribute("data-telegram-login", cfg.bot);
+  sc.setAttribute("data-size", "large");
+  sc.setAttribute("data-radius", "12");
+  sc.setAttribute("data-request-access", "write");
+  sc.setAttribute("data-onauth", "onTelegramAuth(user)");
+  $("#tgLogin").appendChild(sc);
+}
+
+let installPrompt = null;
+function setupInstall() {
+  const standalone = matchMedia("(display-mode: standalone)").matches || navigator.standalone;
+  if (standalone) return;
+  const btn = $("#installBtn");
+  const isIOS = /iphone|ipad|ipod/i.test(navigator.userAgent);
+  window.addEventListener("beforeinstallprompt", (e) => { e.preventDefault(); installPrompt = e; btn.classList.remove("hidden"); });
+  if (isIOS) btn.classList.remove("hidden");
+  btn.onclick = async () => {
+    if (installPrompt) { installPrompt.prompt(); await installPrompt.userChoice; installPrompt = null; btn.classList.add("hidden"); }
+    else if (isIOS) tg.showAlert(T("ios_install_hint"));
+  };
+  window.addEventListener("appinstalled", () => btn.classList.add("hidden"));
+}
+
+function applyWebTheme() {
+  // Telegram'dan tashqarida — tizim mavzusiga mos ranglar (Telegram ichida ularni Telegram beradi)
+  const dark = matchMedia("(prefers-color-scheme: dark)").matches;
+  const t = dark ? { bg: "#17212b", bg2: "#0e1621", text: "#f5f5f5", hint: "#8a99ab", link: "#e2b65b", btn: "#c9a14a", btnText: "#1d1b16" }
+                 : { bg: "#ffffff", bg2: "#f3f1ec", text: "#1d1b16", hint: "#8a8478", link: "#a8822e", btn: "#b8913f", btnText: "#ffffff" };
+  const r = document.documentElement.style;
+  r.setProperty("--tg-theme-bg-color", t.bg); r.setProperty("--tg-theme-secondary-bg-color", t.bg2);
+  r.setProperty("--tg-theme-text-color", t.text); r.setProperty("--tg-theme-hint-color", t.hint);
+  r.setProperty("--tg-theme-link-color", t.link); r.setProperty("--tg-theme-button-color", t.btn);
+  r.setProperty("--tg-theme-button-text-color", t.btnText);
+}
+
+function startApp() {
+  boot().catch((e) => {
+    if (!IN_TG && e.status === 401) return showLogin();
+    document.body.innerHTML = `<div class="empty" style="padding-top:30vh"><div class="big">⚠️</div>${
+      e.status === 401 ? "Telegram → @bot" : "Error"}</div>`;
+  });
+}
+
+tg.ready(); tg.expand();
+try { tg.setHeaderColor("bg_color"); } catch (e) {}
+tg.MainButton.onClick(onMainButton);
+tg.BackButton.onClick(() => { haptic(); popScreen(); });
+$("#cartBtn").onclick = openCart;
+$("#langBtn").onclick = openLangSheet;
+$("#bonusBtn").onclick = () => toast(`💎 ${S.data.bonus.balance} = ${money(S.data.bonus.balance * S.data.bonus.value)}`);
+if (!IN_TG) {
+  applyWebTheme();
+  setupInstall();
+  if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").catch(() => {});
+}
+startApp();
+</script>
+</body>
+</html>
